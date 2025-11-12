@@ -1,0 +1,85 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 장르 Enum
+enum Genre {
+  THEATER  // 연극
+  MUSICAL  // 뮤지컬
+}
+
+// 사용자 테이블
+model User {
+  id        String   @id @default(uuid()) // 사용자 고유 ID
+  username  String   @unique // 아이디 (로그인용)
+  password  String // 비밀번호 (해시)
+  nickname  String // 닉네임
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // 관계
+  tickets Ticket[]
+
+  // 인덱스
+  @@index([username], name: "idx_username")
+  @@map("users")
+}
+
+// 티켓 테이블
+model Ticket {
+  id              String   @id // 티켓 고유 ID
+  userId          String   @map("user_id") // 사용자 ID
+  date            DateTime @db.Date // 공연 날짜 (YYYY-MM-DD)
+  time            DateTime @db.Time // 공연 시간 (HH:MM:SS)
+  performanceName String   @map("performance_name") // 정규화된 작품명
+  genre           Genre? // 장르
+  isChild         Boolean  @default(false) @map("is_child") // 어린이 공연 여부
+  theater         String // 정규화된 극장명
+  seat            String? // 좌석 정보
+  ticketPrice     Int      @default(0) @map("ticket_price") // 티켓 가격
+  companion       String? // 동행자
+  mdPrice         Int      @default(0) @map("md_price") // MD 가격
+  rating          Int      @default(0) // 별점 (0-5)
+  review          String?  @db.Text // 공연 후기
+  posterUrl       String?  @map("poster_url") // 포스터 URL
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // 관계
+  user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  castings TicketCasting[]
+
+  // 인덱스
+  @@index([userId], name: "idx_user_id")
+  @@index([date], name: "idx_date")
+  @@index([performanceName], name: "idx_performance_name")
+  @@index([genre], name: "idx_genre")
+  @@index([theater], name: "idx_theater")
+  @@index([rating], name: "idx_rating")
+  @@map("tickets")
+}
+
+// 배우 캐스팅 테이블
+model TicketCasting {
+  id        BigInt   @id @default(autoincrement())
+  ticketId  String   @map("ticket_id") // 티켓 ID
+  actorName String   @map("actor_name") // 배우 이름
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // 관계
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  // 인덱스
+  @@index([ticketId], name: "idx_ticket_id")
+  @@index([actorName], name: "idx_actor_name")
+  @@map("ticket_castings")
+}
+
