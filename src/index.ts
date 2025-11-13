@@ -2,6 +2,9 @@ import express, { Request, Response } from "express";
 import dotenv from "dotenv";
 import { prisma } from "./lib/prisma";
 import userRoutes from "./routes/users";
+import authRoutes from "./routes/auth";
+import ticketRoutes from "./routes/tickets";
+import reportRoutes from "./routes/reports/index";
 
 dotenv.config();
 
@@ -23,6 +26,9 @@ app.get("/health", (_req: Request, res: Response) => {
 
 // API Routes
 app.use("/api/users", userRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/api/tickets", ticketRoutes);
+app.use("/api/reports", reportRoutes);
 
 // Start server
 const server = app.listen(PORT, () => {
