@@ -74,8 +74,63 @@ const formatTicketResponse = (ticket: any) => {
 };
 
 /**
- * GET /api/tickets
- * 티켓 목록 조회
+ * @openapi
+ * /api/tickets:
+ *   get:
+ *     summary: 티켓 목록 조회
+ *     tags: [Tickets]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: date
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: 특정 날짜 (YYYY-MM-DD)
+ *       - in: query
+ *         name: year
+ *         schema:
+ *           type: string
+ *         description: 연도
+ *       - in: query
+ *         name: month
+ *         schema:
+ *           type: string
+ *         description: 월 (YYYY-MM 형식)
+ *       - in: query
+ *         name: genre
+ *         schema:
+ *           type: string
+ *           enum: [연극, 뮤지컬]
+ *         description: 장르
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: 페이지 번호
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *         description: 페이지당 항목 수
+ *     responses:
+ *       200:
+ *         description: 티켓 목록
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/Ticket'
+ *       401:
+ *         description: 인증 실패
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.get("/", async (req: Request, res: Response): Promise<void> => {
   try {
@@ -154,8 +209,91 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
 });
 
 /**
- * POST /api/tickets
- * 티켓 생성
+ * @openapi
+ * /api/tickets:
+ *   post:
+ *     summary: 티켓 생성
+ *     tags: [Tickets]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - date
+ *               - time
+ *               - performanceName
+ *               - theater
+ *             properties:
+ *               date:
+ *                 type: string
+ *                 format: date
+ *                 example: "2024-01-15"
+ *               time:
+ *                 type: string
+ *                 format: time
+ *                 example: "19:30:00"
+ *               performanceName:
+ *                 type: string
+ *               genre:
+ *                 type: string
+ *                 enum: [연극, 뮤지컬]
+ *               isChild:
+ *                 type: boolean
+ *                 default: false
+ *               theater:
+ *                 type: string
+ *               seat:
+ *                 type: string
+ *               ticketPrice:
+ *                 type: integer
+ *                 default: 0
+ *               companion:
+ *                 type: string
+ *               mdPrice:
+ *                 type: integer
+ *                 default: 0
+ *               rating:
+ *                 type: integer
+ *                 minimum: 0
+ *                 maximum: 5
+ *                 default: 0
+ *               review:
+ *                 type: string
+ *               posterUrl:
+ *                 type: string
+ *               casting:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *     responses:
+ *       201:
+ *         description: 티켓 생성 성공
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 id:
+ *                   type: string
+ *                   format: uuid
+ *       400:
+ *         description: 필수 필드 누락
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: 인증 실패
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.post("/", async (req: Request, res: Response): Promise<void> => {
   try {
@@ -247,8 +385,85 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
 });
 
 /**
- * PUT /api/tickets/:id
- * 티켓 수정
+ * @openapi
+ * /api/tickets/{id}:
+ *   put:
+ *     summary: 티켓 수정
+ *     tags: [Tickets]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: "티켓 ID"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               date:
+ *                 type: string
+ *                 format: date
+ *               time:
+ *                 type: string
+ *                 format: time
+ *               performanceName:
+ *                 type: string
+ *               genre:
+ *                 type: string
+ *                 enum: [연극, 뮤지컬]
+ *               isChild:
+ *                 type: boolean
+ *               theater:
+ *                 type: string
+ *               seat:
+ *                 type: string
+ *               ticketPrice:
+ *                 type: integer
+ *               companion:
+ *                 type: string
+ *               mdPrice:
+ *                 type: integer
+ *               rating:
+ *                 type: integer
+ *                 minimum: 0
+ *                 maximum: 5
+ *               review:
+ *                 type: string
+ *               posterUrl:
+ *                 type: string
+ *               casting:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *     responses:
+ *       200:
+ *         description: "티켓 수정 성공"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *       404:
+ *         description: "티켓을 찾을 수 없습니다"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: "인증 실패"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.put("/:id", async (req: Request, res: Response): Promise<void> => {
   try {
@@ -356,8 +571,43 @@ router.put("/:id", async (req: Request, res: Response): Promise<void> => {
 });
 
 /**
- * DELETE /api/tickets/:id
- * 티켓 삭제
+ * @openapi
+ * /api/tickets/{id}:
+ *   delete:
+ *     summary: 티켓 삭제
+ *     tags: [Tickets]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: "티켓 ID"
+ *     responses:
+ *       200:
+ *         description: "티켓 삭제 성공"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *       404:
+ *         description: "티켓을 찾을 수 없습니다"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: "인증 실패"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.delete("/:id", async (req: Request, res: Response): Promise<void> => {
   try {
@@ -398,8 +648,59 @@ router.delete("/:id", async (req: Request, res: Response): Promise<void> => {
 });
 
 /**
- * GET /api/tickets/month?yearMonth=YYYY-MM
- * 달력용 달별 티켓 조회 (이전달 마지막 주, 해당 달, 다음달 첫 주 포함)
+ * @openapi
+ * /api/tickets/month:
+ *   get:
+ *     summary: 달력용 달별 티켓 조회
+ *     description: 이전달 마지막 주, 해당 달, 다음달 첫 주를 포함하여 조회합니다.
+ *     tags: [Tickets]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: yearMonth
+ *         required: true
+ *         schema:
+ *           type: string
+ *           pattern: '^\d{4}-\d{2}$'
+ *         description: "연도-월 (YYYY-MM 형식, 예: 2024-01)"
+ *     responses:
+ *       200:
+ *         description: 날짜별로 그룹화된 티켓 목록
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                         format: uuid
+ *                       posterUrl:
+ *                         type: string
+ *                         nullable: true
+ *                       date:
+ *                         type: string
+ *                         format: date
+ *                       time:
+ *                         type: string
+ *                         format: time
+ *       400:
+ *         description: 잘못된 요청
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: 인증 실패
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.get("/month", async (req: Request, res: Response): Promise<void> => {
   try {
@@ -511,9 +812,40 @@ router.get("/month", async (req: Request, res: Response): Promise<void> => {
 });
 
 /**
- * GET /api/tickets/:id
- * 티켓 상세 조회
- * 주의: 구체적인 라우트(/month, /date/:date) 뒤에 정의해야 함
+ * @openapi
+ * /api/tickets/{id}:
+ *   get:
+ *     summary: 티켓 상세 조회
+ *     tags: [Tickets]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: "티켓 ID"
+ *     responses:
+ *       200:
+ *         description: "티켓 상세 정보"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Ticket'
+ *       404:
+ *         description: "티켓을 찾을 수 없습니다"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: "인증 실패"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.get("/:id", async (req: Request, res: Response): Promise<void> => {
   try {

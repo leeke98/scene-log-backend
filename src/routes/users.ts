@@ -5,7 +5,7 @@ import bcrypt from "bcrypt";
 const router = Router();
 
 /**
- * @swagger
+ * @openapi
  * /api/users:
  *   post:
  *     summary: 새 사용자 생성
@@ -104,7 +104,7 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
 });
 
 /**
- * @swagger
+ * @openapi
  * /api/users:
  *   get:
  *     summary: 사용자 목록 조회
@@ -151,7 +151,7 @@ router.get("/", async (_req: Request, res: Response): Promise<void> => {
 });
 
 /**
- * @swagger
+ * @openapi
  * /api/users/{id}:
  *   get:
  *     summary: 특정 사용자 조회

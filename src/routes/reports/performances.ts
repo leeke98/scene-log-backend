@@ -56,8 +56,61 @@ const getYearMonthFilter = (year: string, month: string) => {
 };
 
 /**
- * GET /api/reports/performances
- * 작품별 통계
+ * @openapi
+ * /api/reports/performances:
+ *   get:
+ *     summary: 작품별 통계
+ *     tags: [Reports]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: "작품명 검색"
+ *       - in: query
+ *         name: year
+ *         schema:
+ *           type: string
+ *         description: "연도 (예: 2024)"
+ *     responses:
+ *       200:
+ *         description: "작품별 통계 데이터"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   name:
+ *                     type: string
+ *                   viewCount:
+ *                     type: integer
+ *                   totalTicketPrice:
+ *                     type: integer
+ *                   avgRating:
+ *                     type: number
+ *                   firstViewed:
+ *                     type: string
+ *                     format: date
+ *                   lastViewed:
+ *                     type: string
+ *                     format: date
+ *                   posterUrl:
+ *                     type: string
+ *                     nullable: true
+ *                   genre:
+ *                     type: string
+ *                     enum: [연극, 뮤지컬]
+ *                     nullable: true
+ *       401:
+ *         description: "인증 실패"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.get(
   "/performances",
@@ -165,13 +218,48 @@ router.get(
 );
 
 /**
- * GET /api/reports/performances/top
- * 가장 많이 본 작품 Top 10
- * 쿼리 파라미터:
- *   - year: 연도별 조회 (예: 2024)
- *   - month: 월별 조회 (year와 함께 사용, 예: 01, 02, ..., 12)
- *   - 파라미터 없음: 전체 누적 데이터 조회
- * 주의: 구체적인 라우트이므로 동적 라우트(:performanceName)보다 먼저 정의해야 함
+ * @openapi
+ * /api/reports/performances/top:
+ *   get:
+ *     summary: 가장 많이 본 작품 Top 10
+ *     description: 연도별, 월별, 또는 전체 누적 데이터를 조회할 수 있습니다.
+ *     tags: [Reports]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: year
+ *         schema:
+ *           type: string
+ *         description: "연도 (예: 2024)"
+ *       - in: query
+ *         name: month
+ *         schema:
+ *           type: string
+ *         description: "월 (year와 함께 사용, 예: 01, 02, ..., 12)"
+ *     responses:
+ *       200:
+ *         description: Top 10 작품 목록
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   performanceName:
+ *                     type: string
+ *                   posterUrl:
+ *                     type: string
+ *                     nullable: true
+ *                   count:
+ *                     type: integer
+ *       401:
+ *         description: 인증 실패
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.get(
   "/performances/top",
@@ -264,9 +352,92 @@ router.get(
 );
 
 /**
- * GET /api/reports/performances/:performanceName
- * 작품 상세 정보
- * 주의: 구체적인 라우트(/top) 뒤에 정의해야 함
+ * @openapi
+ * /api/reports/performances/{performanceName}:
+ *   get:
+ *     summary: 작품 상세 정보
+ *     tags: [Reports]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: performanceName
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: "작품명 (URL 인코딩 필요)"
+ *       - in: query
+ *         name: year
+ *         schema:
+ *           type: string
+ *         description: "연도 (예: 2024)"
+ *     responses:
+ *       200:
+ *         description: "작품 상세 정보 및 티켓 목록"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 performance:
+ *                   type: object
+ *                   properties:
+ *                     performanceName:
+ *                       type: string
+ *                     viewCount:
+ *                       type: integer
+ *                     totalTicketPrice:
+ *                       type: integer
+ *                     avgRating:
+ *                       type: number
+ *                     firstViewed:
+ *                       type: string
+ *                       format: date
+ *                     lastViewed:
+ *                       type: string
+ *                       format: date
+ *                     posterUrl:
+ *                       type: string
+ *                       nullable: true
+ *                     genre:
+ *                       type: string
+ *                       enum: [연극, 뮤지컬]
+ *                       nullable: true
+ *                 tickets:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                         format: uuid
+ *                       date:
+ *                         type: string
+ *                         format: date
+ *                       theater:
+ *                         type: string
+ *                       seat:
+ *                         type: string
+ *                       rating:
+ *                         type: integer
+ *                       review:
+ *                         type: string
+ *                       ticketPrice:
+ *                         type: integer
+ *                       posterUrl:
+ *                         type: string
+ *       404:
+ *         description: "작품을 찾을 수 없습니다"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: "인증 실패"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.get(
   "/performances/:performanceName",

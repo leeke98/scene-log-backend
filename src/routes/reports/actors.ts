@@ -23,8 +23,52 @@ const getYearFilter = (year?: string) => {
 };
 
 /**
- * GET /api/reports/actors
- * 배우별 통계
+ * @openapi
+ * /api/reports/actors:
+ *   get:
+ *     summary: 배우별 통계
+ *     tags: [Reports]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: "배우명 검색"
+ *       - in: query
+ *         name: year
+ *         schema:
+ *           type: string
+ *         description: "연도 (예: 2024)"
+ *     responses:
+ *       200:
+ *         description: "배우별 통계 데이터"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   actorName:
+ *                     type: string
+ *                   viewCount:
+ *                     type: integer
+ *                   totalTicketPrice:
+ *                     type: integer
+ *                   uniquePerformances:
+ *                     type: integer
+ *                   performanceList:
+ *                     type: array
+ *                     items:
+ *                       type: string
+ *       401:
+ *         description: "인증 실패"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.get("/actors", async (req: Request, res: Response): Promise<void> => {
   try {
@@ -101,8 +145,81 @@ router.get("/actors", async (req: Request, res: Response): Promise<void> => {
 });
 
 /**
- * GET /api/reports/actors/:actorName
- * 배우 상세 정보
+ * @openapi
+ * /api/reports/actors/{actorName}:
+ *   get:
+ *     summary: 배우 상세 정보
+ *     tags: [Reports]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: actorName
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: "배우명 (URL 인코딩 필요)"
+ *       - in: query
+ *         name: year
+ *         schema:
+ *           type: string
+ *         description: "연도 (예: 2024)"
+ *     responses:
+ *       200:
+ *         description: "배우 상세 정보 및 티켓 목록"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 actor:
+ *                   type: object
+ *                   properties:
+ *                     actorName:
+ *                       type: string
+ *                     viewCount:
+ *                       type: integer
+ *                     totalTicketPrice:
+ *                       type: integer
+ *                     uniquePerformances:
+ *                       type: integer
+ *                     performanceList:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                 tickets:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                         format: uuid
+ *                       date:
+ *                         type: string
+ *                         format: date
+ *                       performanceName:
+ *                         type: string
+ *                       theater:
+ *                         type: string
+ *                       seat:
+ *                         type: string
+ *                       rating:
+ *                         type: integer
+ *                       posterUrl:
+ *                         type: string
+ *       404:
+ *         description: "배우를 찾을 수 없습니다"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: "인증 실패"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.get(
   "/actors/:actorName",

@@ -19,8 +19,57 @@ const generateToken = (userId: string, username: string): string => {
 };
 
 /**
- * POST /api/auth/signup
- * 회원가입
+ * @openapi
+ * /api/auth/signup:
+ *   post:
+ *     summary: 회원가입
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - username
+ *               - password
+ *               - nickname
+ *             properties:
+ *               username:
+ *                 type: string
+ *                 description: 사용자명
+ *               password:
+ *                 type: string
+ *                 description: 비밀번호
+ *               nickname:
+ *                 type: string
+ *                 description: 닉네임
+ *     responses:
+ *       201:
+ *         description: 회원가입 성공
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 token:
+ *                   type: string
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *       400:
+ *         description: 필수 필드 누락
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       409:
+ *         description: 사용자명 중복
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.post("/signup", async (req: Request, res: Response): Promise<void> => {
   try {
@@ -89,8 +138,47 @@ router.post("/signup", async (req: Request, res: Response): Promise<void> => {
 });
 
 /**
- * POST /api/auth/login
- * 로그인
+ * @openapi
+ * /api/auth/login:
+ *   post:
+ *     summary: 로그인
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - username
+ *               - password
+ *             properties:
+ *               username:
+ *                 type: string
+ *                 description: 사용자명
+ *               password:
+ *                 type: string
+ *                 description: 비밀번호
+ *     responses:
+ *       200:
+ *         description: 로그인 성공
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 token:
+ *                   type: string
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *       401:
+ *         description: 인증 실패
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.post("/login", async (req: Request, res: Response): Promise<void> => {
   try {
@@ -151,8 +239,26 @@ router.post("/login", async (req: Request, res: Response): Promise<void> => {
 });
 
 /**
- * GET /api/auth/me
- * 현재 사용자 정보 조회
+ * @openapi
+ * /api/auth/me:
+ *   get:
+ *     summary: 현재 사용자 정보 조회
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: 사용자 정보
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/User'
+ *       401:
+ *         description: 인증 실패
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.get(
   "/me",

@@ -68,12 +68,49 @@ function getISOWeek(date: Date): number {
 }
 
 /**
- * GET /api/reports/summary
- * 전체 통계 요약
- * 쿼리 파라미터:
- *   - year: 연도별 조회 (예: 2024)
- *   - month: 월별 조회 (year와 함께 사용, 예: 01, 02, ..., 12)
- *   - 파라미터 없음: 전체 누적 데이터 조회
+ * @openapi
+ * /api/reports/summary:
+ *   get:
+ *     summary: 전체 통계 요약
+ *     description: 연도별, 월별, 또는 전체 누적 데이터를 조회할 수 있습니다.
+ *     tags: [Reports]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: year
+ *         schema:
+ *           type: string
+ *         description: "연도 (예: 2024)"
+ *       - in: query
+ *         name: month
+ *         schema:
+ *           type: string
+ *         description: "월 (year와 함께 사용, 예: 01, 02, ..., 12)"
+ *     responses:
+ *       200:
+ *         description: 통계 요약 데이터
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 totalTickets:
+ *                   type: integer
+ *                 totalPerformances:
+ *                   type: integer
+ *                 totalActors:
+ *                   type: integer
+ *                 totalSpent:
+ *                   type: integer
+ *                 averageRating:
+ *                   type: number
+ *       401:
+ *         description: 인증 실패
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.get("/summary", async (req: Request, res: Response): Promise<void> => {
   try {
@@ -206,8 +243,42 @@ router.get("/summary", async (req: Request, res: Response): Promise<void> => {
 });
 
 /**
- * GET /api/reports/monthly
- * 월별 통계
+ * @openapi
+ * /api/reports/monthly:
+ *   get:
+ *     summary: 월별 통계
+ *     tags: [Reports]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: year
+ *         schema:
+ *           type: string
+ *         description: "연도 (예: 2024)"
+ *     responses:
+ *       200:
+ *         description: "월별 통계 데이터"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   yearMonth:
+ *                     type: string
+ *                     example: "2024-01"
+ *                   count:
+ *                     type: integer
+ *                   totalPrice:
+ *                     type: integer
+ *       401:
+ *         description: "인증 실패"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.get("/monthly", async (req: Request, res: Response): Promise<void> => {
   try {
@@ -259,8 +330,42 @@ router.get("/monthly", async (req: Request, res: Response): Promise<void> => {
 });
 
 /**
- * GET /api/reports/weekly
- * 주별 통계
+ * @openapi
+ * /api/reports/weekly:
+ *   get:
+ *     summary: 주별 통계
+ *     tags: [Reports]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: yearMonth
+ *         schema:
+ *           type: string
+ *         description: "연도-월 (YYYY-MM 형식, 예: 2024-01)"
+ *     responses:
+ *       200:
+ *         description: "주별 통계 데이터"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   yearWeek:
+ *                     type: string
+ *                     example: "2024-W01"
+ *                   count:
+ *                     type: integer
+ *                   totalPrice:
+ *                     type: integer
+ *       401:
+ *         description: "인증 실패"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.get("/weekly", async (req: Request, res: Response): Promise<void> => {
   try {
@@ -325,12 +430,52 @@ router.get("/weekly", async (req: Request, res: Response): Promise<void> => {
 });
 
 /**
- * GET /api/reports/day-of-week
- * 요일별 통계
- * 쿼리 파라미터:
- *   - year: 연도별 조회 (예: 2024)
- *   - month: 월별 조회 (year와 함께 사용, 예: 01, 02, ..., 12)
- *   - 파라미터 없음: 전체 누적 데이터 조회
+ * @openapi
+ * /api/reports/day-of-week:
+ *   get:
+ *     summary: 요일별 통계
+ *     description: "연도별, 월별, 또는 전체 누적 데이터를 조회할 수 있습니다."
+ *     tags: [Reports]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: year
+ *         schema:
+ *           type: string
+ *         description: "연도 (예: 2024)"
+ *       - in: query
+ *         name: month
+ *         schema:
+ *           type: string
+ *         description: "월 (year와 함께 사용, 예: 01, 02, ..., 12)"
+ *     responses:
+ *       200:
+ *         description: "요일별 통계 데이터"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   dayOfWeek:
+ *                     type: string
+ *                     enum: [일요일, 월요일, 화요일, 수요일, 목요일, 금요일, 토요일]
+ *                   count:
+ *                     type: integer
+ *       400:
+ *         description: "잘못된 요청"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: "인증 실패"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.get(
   "/day-of-week",
@@ -412,8 +557,41 @@ router.get(
 );
 
 /**
- * GET /api/reports/grass
- * 잔디밭 데이터 (GitHub 스타일)
+ * @openapi
+ * /api/reports/grass:
+ *   get:
+ *     summary: 잔디밭 데이터 (GitHub 스타일)
+ *     tags: [Reports]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: year
+ *         schema:
+ *           type: string
+ *         description: "연도 (예: 2024)"
+ *     responses:
+ *       200:
+ *         description: "날짜별 티켓 개수 데이터"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   date:
+ *                     type: string
+ *                     format: date
+ *                     example: "2024-01-15"
+ *                   count:
+ *                     type: integer
+ *       401:
+ *         description: "인증 실패"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.get("/grass", async (req: Request, res: Response): Promise<void> => {
   try {

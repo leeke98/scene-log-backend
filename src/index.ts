@@ -1,6 +1,8 @@
 import express, { Request, Response } from "express";
 import dotenv from "dotenv";
+import swaggerUi from "swagger-ui-express";
 import { prisma } from "./lib/prisma";
+import { swaggerSpec } from "./config/swagger";
 import userRoutes from "./routes/users";
 import authRoutes from "./routes/auth";
 import ticketRoutes from "./routes/tickets";
@@ -14,6 +16,9 @@ const PORT = process.env.PORT || 3001;
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Swagger UI
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Routes
 app.get("/", (_req: Request, res: Response) => {
