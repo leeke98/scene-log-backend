@@ -60,6 +60,7 @@ const getYearMonthFilter = (year: string, month: string) => {
  * /api/reports/performances:
  *   get:
  *     summary: 작품별 통계
+ *     description: 연도별, 월별, 또는 전체 누적 데이터를 조회할 수 있습니다.
  *     tags: [Reports]
  *     security:
  *       - bearerAuth: []
@@ -74,6 +75,11 @@ const getYearMonthFilter = (year: string, month: string) => {
  *         schema:
  *           type: string
  *         description: "연도 (예: 2024)"
+ *       - in: query
+ *         name: month
+ *         schema:
+ *           type: string
+ *         description: "월 (year와 함께 사용, 예: 01, 02, ..., 12)"
  *     responses:
  *       200:
  *         description: "작품별 통계 데이터"
@@ -92,12 +98,6 @@ const getYearMonthFilter = (year: string, month: string) => {
  *                     type: integer
  *                   avgRating:
  *                     type: number
- *                   firstViewed:
- *                     type: string
- *                     format: date
- *                   lastViewed:
- *                     type: string
- *                     format: date
  *                   posterUrl:
  *                     type: string
  *                     nullable: true
@@ -117,12 +117,31 @@ router.get(
   async (req: Request, res: Response): Promise<void> => {
     try {
       const userId = req.userId!;
-      const { search, year } = req.query;
+      const { search, year, month } = req.query;
 
       const where: any = {
         userId,
-        ...getYearFilter(year as string),
       };
+
+      // 필터 조건 설정
+      if (year && month && month !== "") {
+        // 연도-월별 조회: 해당 월에 본 작품들의 누적 통계
+        const monthStr = (month as string).padStart(2, "0");
+        if (parseInt(monthStr, 10) < 1 || parseInt(monthStr, 10) > 12) {
+          res.status(400).json({
+            error: "월은 1-12 사이의 값이어야 합니다.",
+            code: "INVALID_MONTH",
+          });
+          return;
+        }
+        const dateFilter = getYearMonthFilter(year as string, monthStr);
+        where.date = dateFilter.date;
+      } else if (year) {
+        // 연도별 조회: 해당 연도에 본 작품들의 누적 통계
+        const dateFilter = getYearFilter(year as string);
+        where.date = dateFilter.date;
+      }
+      // 파라미터가 없으면 전체 누적 데이터 (where에 추가 조건 없음)
 
       if (search) {
         where.performanceName = {
@@ -134,7 +153,6 @@ router.get(
         where,
         select: {
           performanceName: true,
-          date: true,
           ticketPrice: true,
           rating: true,
           posterUrl: true,
@@ -149,7 +167,6 @@ router.get(
           viewCount: number;
           totalTicketPrice: number;
           ratings: number[];
-          dates: Date[];
           posterUrl: string | null;
           genre: Genre | null;
         }
@@ -162,7 +179,6 @@ router.get(
             viewCount: 0,
             totalTicketPrice: 0,
             ratings: [],
-            dates: [],
             posterUrl: ticket.posterUrl,
             genre: ticket.genre,
           };
@@ -172,14 +188,10 @@ router.get(
         if (ticket.rating > 0) {
           performanceData[name].ratings.push(ticket.rating);
         }
-        performanceData[name].dates.push(ticket.date);
       });
 
       const result = Object.entries(performanceData)
         .map(([name, data]) => {
-          const sortedDates = data.dates.sort(
-            (a, b) => a.getTime() - b.getTime()
-          );
           const avgRating =
             data.ratings.length > 0
               ? data.ratings.reduce((sum, r) => sum + r, 0) /
@@ -191,10 +203,6 @@ router.get(
             viewCount: data.viewCount,
             totalTicketPrice: data.totalTicketPrice,
             avgRating: Math.round(avgRating * 10) / 10,
-            firstViewed: sortedDates[0].toISOString().split("T")[0],
-            lastViewed: sortedDates[sortedDates.length - 1]
-              .toISOString()
-              .split("T")[0],
             posterUrl: data.posterUrl,
             genre:
               data.genre === Genre.THEATER
@@ -356,6 +364,7 @@ router.get(
  * /api/reports/performances/{performanceName}:
  *   get:
  *     summary: 작품 상세 정보
+ *     description: 연도별, 월별, 또는 전체 누적 데이터를 조회할 수 있습니다.
  *     tags: [Reports]
  *     security:
  *       - bearerAuth: []
@@ -371,6 +380,11 @@ router.get(
  *         schema:
  *           type: string
  *         description: "연도 (예: 2024)"
+ *       - in: query
+ *         name: month
+ *         schema:
+ *           type: string
+ *         description: "월 (year와 함께 사용, 예: 01, 02, ..., 12)"
  *     responses:
  *       200:
  *         description: "작품 상세 정보 및 티켓 목록"
@@ -445,13 +459,32 @@ router.get(
     try {
       const userId = req.userId!;
       const { performanceName } = req.params;
-      const { year } = req.query;
+      const { year, month } = req.query;
 
       const where: any = {
         userId,
         performanceName: decodeURIComponent(performanceName),
-        ...getYearFilter(year as string),
       };
+
+      // 필터 조건 설정
+      if (year && month && month !== "") {
+        // 연도-월별 조회: 해당 월에 본 작품들의 누적 통계
+        const monthStr = (month as string).padStart(2, "0");
+        if (parseInt(monthStr, 10) < 1 || parseInt(monthStr, 10) > 12) {
+          res.status(400).json({
+            error: "월은 1-12 사이의 값이어야 합니다.",
+            code: "INVALID_MONTH",
+          });
+          return;
+        }
+        const dateFilter = getYearMonthFilter(year as string, monthStr);
+        where.date = dateFilter.date;
+      } else if (year) {
+        // 연도별 조회: 해당 연도에 본 작품들의 누적 통계
+        const dateFilter = getYearFilter(year as string);
+        where.date = dateFilter.date;
+      }
+      // 파라미터가 없으면 전체 누적 데이터 (where에 추가 조건 없음)
 
       const tickets = await prisma.ticket.findMany({
         where,

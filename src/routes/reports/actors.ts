@@ -9,11 +9,43 @@ router.use(authenticate);
 
 /**
  * 연도 필터 조건 생성
+ * @db.Date는 날짜만 저장하므로 시간 부분은 무시됨
  */
 const getYearFilter = (year?: string) => {
   if (!year) return {};
-  const startDate = new Date(`${year}-01-01`);
-  const endDate = new Date(`${year}-12-31`);
+  const yearNum = parseInt(year, 10);
+  // UTC 자정으로 변환 (날짜만 비교)
+  const startDate = new Date(`${yearNum}-01-01T00:00:00.000Z`); // 1월 1일
+  const endDate = new Date(`${yearNum}-12-31T00:00:00.000Z`); // 12월 31일
+  return {
+    date: {
+      gte: startDate,
+      lte: endDate,
+    },
+  };
+};
+
+/**
+ * 연도-월 필터 조건 생성
+ * @db.Date는 날짜만 저장하므로 시간 부분은 무시됨
+ */
+const getYearMonthFilter = (year: string, month: string) => {
+  const yearNum = parseInt(year, 10);
+  const monthNum = parseInt(month, 10);
+
+  // 해당 월의 첫 날 (UTC 자정)
+  const startDate = new Date(
+    `${yearNum}-${monthNum.toString().padStart(2, "0")}-01T00:00:00.000Z`
+  );
+
+  // 해당 월의 마지막 날 (UTC 자정)
+  const lastDay = new Date(yearNum, monthNum, 0).getDate();
+  const endDate = new Date(
+    `${yearNum}-${monthNum.toString().padStart(2, "0")}-${lastDay
+      .toString()
+      .padStart(2, "0")}T00:00:00.000Z`
+  );
+
   return {
     date: {
       gte: startDate,
@@ -27,6 +59,7 @@ const getYearFilter = (year?: string) => {
  * /api/reports/actors:
  *   get:
  *     summary: 배우별 통계
+ *     description: 연도별, 월별, 또는 전체 누적 데이터를 조회할 수 있습니다.
  *     tags: [Reports]
  *     security:
  *       - bearerAuth: []
@@ -41,6 +74,11 @@ const getYearFilter = (year?: string) => {
  *         schema:
  *           type: string
  *         description: "연도 (예: 2024)"
+ *       - in: query
+ *         name: month
+ *         schema:
+ *           type: string
+ *         description: "월 (year와 함께 사용, 예: 01, 02, ..., 12)"
  *     responses:
  *       200:
  *         description: "배우별 통계 데이터"
@@ -73,14 +111,33 @@ const getYearFilter = (year?: string) => {
 router.get("/actors", async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
-    const { search, year } = req.query;
+    const { search, year, month } = req.query;
 
     const where: any = {
       ticket: {
         userId,
-        ...getYearFilter(year as string),
       },
     };
+
+    // 필터 조건 설정
+    if (year && month && month !== "") {
+      // 연도-월별 조회: 해당 월에 본 작품들의 누적 통계
+      const monthStr = (month as string).padStart(2, "0");
+      if (parseInt(monthStr, 10) < 1 || parseInt(monthStr, 10) > 12) {
+        res.status(400).json({
+          error: "월은 1-12 사이의 값이어야 합니다.",
+          code: "INVALID_MONTH",
+        });
+        return;
+      }
+      const dateFilter = getYearMonthFilter(year as string, monthStr);
+      where.ticket.date = dateFilter.date;
+    } else if (year) {
+      // 연도별 조회: 해당 연도에 본 작품들의 누적 통계
+      const dateFilter = getYearFilter(year as string);
+      where.ticket.date = dateFilter.date;
+    }
+    // 파라미터가 없으면 전체 누적 데이터 (where에 추가 조건 없음)
 
     if (search) {
       where.actorName = {
@@ -149,6 +206,7 @@ router.get("/actors", async (req: Request, res: Response): Promise<void> => {
  * /api/reports/actors/{actorName}:
  *   get:
  *     summary: 배우 상세 정보
+ *     description: 연도별, 월별, 또는 전체 누적 데이터를 조회할 수 있습니다.
  *     tags: [Reports]
  *     security:
  *       - bearerAuth: []
@@ -164,6 +222,11 @@ router.get("/actors", async (req: Request, res: Response): Promise<void> => {
  *         schema:
  *           type: string
  *         description: "연도 (예: 2024)"
+ *       - in: query
+ *         name: month
+ *         schema:
+ *           type: string
+ *         description: "월 (year와 함께 사용, 예: 01, 02, ..., 12)"
  *     responses:
  *       200:
  *         description: "배우 상세 정보 및 티켓 목록"
@@ -227,15 +290,34 @@ router.get(
     try {
       const userId = req.userId!;
       const { actorName } = req.params;
-      const { year } = req.query;
+      const { year, month } = req.query;
 
       const where: any = {
         actorName: decodeURIComponent(actorName),
         ticket: {
           userId,
-          ...getYearFilter(year as string),
         },
       };
+
+      // 필터 조건 설정
+      if (year && month && month !== "") {
+        // 연도-월별 조회: 해당 월에 본 작품들의 누적 통계
+        const monthStr = (month as string).padStart(2, "0");
+        if (parseInt(monthStr, 10) < 1 || parseInt(monthStr, 10) > 12) {
+          res.status(400).json({
+            error: "월은 1-12 사이의 값이어야 합니다.",
+            code: "INVALID_MONTH",
+          });
+          return;
+        }
+        const dateFilter = getYearMonthFilter(year as string, monthStr);
+        where.ticket.date = dateFilter.date;
+      } else if (year) {
+        // 연도별 조회: 해당 연도에 본 작품들의 누적 통계
+        const dateFilter = getYearFilter(year as string);
+        where.ticket.date = dateFilter.date;
+      }
+      // 파라미터가 없으면 전체 누적 데이터 (where에 추가 조건 없음)
 
       const castings = await prisma.ticketCasting.findMany({
         where,

@@ -561,18 +561,13 @@ router.get(
  * /api/reports/grass:
  *   get:
  *     summary: 잔디밭 데이터 (GitHub 스타일)
+ *     description: 현재 연도 포함 최근 5년치 데이터를 누적하여 월-일 기준으로 집계합니다.
  *     tags: [Reports]
  *     security:
  *       - bearerAuth: []
- *     parameters:
- *       - in: query
- *         name: year
- *         schema:
- *           type: string
- *         description: "연도 (예: 2024)"
  *     responses:
  *       200:
- *         description: "날짜별 티켓 개수 데이터"
+ *         description: "월-일별 티켓 개수 데이터 (누적, 최근 5년)"
  *         content:
  *           application/json:
  *             schema:
@@ -582,8 +577,9 @@ router.get(
  *                 properties:
  *                   date:
  *                     type: string
- *                     format: date
- *                     example: "2024-01-15"
+ *                     pattern: "^\\d{2}-\\d{2}$"
+ *                     example: "01-15"
+ *                     description: "월-일 형식 (MM-DD)"
  *                   count:
  *                     type: integer
  *       401:
@@ -596,26 +592,35 @@ router.get(
 router.get("/grass", async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
-    const { year } = req.query;
 
-    const where: any = {
-      userId,
-      ...getYearFilter(year as string),
-    };
+    // 현재 연도 포함 최근 5년치 데이터만 조회
+    const currentYear = new Date().getFullYear();
+    const startYear = currentYear - 4; // 5년치 (현재 연도 포함)
+    const startDate = new Date(`${startYear}-01-01T00:00:00.000Z`);
+    const endDate = new Date(`${currentYear}-12-31T23:59:59.999Z`);
 
     const tickets = await prisma.ticket.findMany({
-      where,
+      where: {
+        userId,
+        date: {
+          gte: startDate,
+          lte: endDate,
+        },
+      },
       select: {
         date: true,
       },
     });
 
-    // 날짜별로 그룹화
+    // 월-일별로 그룹화 (연도 무시)
     const dateCounts: Record<string, number> = {};
 
     tickets.forEach((ticket) => {
-      const dateStr = ticket.date.toISOString().split("T")[0];
-      dateCounts[dateStr] = (dateCounts[dateStr] || 0) + 1;
+      const date = new Date(ticket.date);
+      const month = (date.getMonth() + 1).toString().padStart(2, "0");
+      const day = date.getDate().toString().padStart(2, "0");
+      const monthDay = `${month}-${day}`;
+      dateCounts[monthDay] = (dateCounts[monthDay] || 0) + 1;
     });
 
     const result = Object.entries(dateCounts)
