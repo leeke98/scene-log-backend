@@ -68,6 +68,29 @@ function getISOWeek(date: Date): number {
 }
 
 /**
+ * 월 내 주 번호 계산 (해당 월의 첫째주, 둘째주 등)
+ */
+function getWeekInMonth(date: Date): number {
+  const firstDayOfMonth = new Date(date.getFullYear(), date.getMonth(), 1);
+  const firstDayOfWeek = firstDayOfMonth.getDay(); // 0(일요일) ~ 6(토요일)
+
+  // 월요일을 주의 시작으로 간주 (월요일 = 1)
+  const adjustedFirstDayOfWeek = firstDayOfWeek === 0 ? 7 : firstDayOfWeek;
+
+  const dayOfMonth = date.getDate();
+  // 첫 주의 일수 계산 (월요일부터 시작)
+  const daysInFirstWeek = 8 - adjustedFirstDayOfWeek;
+
+  if (dayOfMonth <= daysInFirstWeek) {
+    return 1; // 첫째주
+  }
+
+  // 첫째주 이후의 주 번호 계산
+  const remainingDays = dayOfMonth - daysInFirstWeek;
+  return Math.ceil(remainingDays / 7) + 1;
+}
+
+/**
  * @openapi
  * /api/reports/summary:
  *   get:
@@ -386,7 +409,8 @@ router.get("/monthly", async (req: Request, res: Response): Promise<void> => {
  *                 properties:
  *                   yearWeek:
  *                     type: string
- *                     example: "2024-W01"
+ *                     description: "yearMonth 파라미터가 있으면 'YYYY-MM-N' 형식 (예: 2024-02-1), 없으면 'YYYY-N' 형식 (예: 2024-7)"
+ *                     example: "2024-02-1"
  *                   count:
  *                     type: integer
  *                   totalPrice:
@@ -407,8 +431,15 @@ router.get("/weekly", async (req: Request, res: Response): Promise<void> => {
       userId,
     };
 
+    let isMonthFilter = false;
+    let monthYear: string | null = null;
+    let monthMonth: string | null = null;
+
     if (yearMonth) {
+      isMonthFilter = true;
       const [year, month] = (yearMonth as string).split("-");
+      monthYear = year;
+      monthMonth = month;
       const startDate = new Date(`${year}-${month}-01`);
       const endDate = new Date(`${year}-${month}-31`);
       where.date = {
@@ -425,15 +456,24 @@ router.get("/weekly", async (req: Request, res: Response): Promise<void> => {
       },
     });
 
-    // 주별로 그룹화 (ISO 주 번호 사용)
+    // 주별로 그룹화
     const weeklyData: Record<string, { count: number; totalPrice: number }> =
       {};
 
     tickets.forEach((ticket) => {
       const date = new Date(ticket.date);
-      const year = date.getFullYear();
-      const week = getISOWeek(date);
-      const yearWeek = `${year}-W${week.toString().padStart(2, "0")}`;
+      let yearWeek: string;
+
+      if (isMonthFilter && monthYear && monthMonth) {
+        // 월 필터가 있는 경우: 해당 월의 주 번호 사용 (예: "2024-02-1", "2024-02-2")
+        const weekInMonth = getWeekInMonth(date);
+        yearWeek = `${monthYear}-${monthMonth}-${weekInMonth}`;
+      } else {
+        // 월 필터가 없는 경우: ISO 주 번호 사용 (예: "2024-7")
+        const year = date.getFullYear();
+        const week = getISOWeek(date);
+        yearWeek = `${year}-${week}`;
+      }
 
       if (!weeklyData[yearWeek]) {
         weeklyData[yearWeek] = { count: 0, totalPrice: 0 };
