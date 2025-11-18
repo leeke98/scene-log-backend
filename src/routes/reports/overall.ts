@@ -105,6 +105,14 @@ function getISOWeek(date: Date): number {
  *                   type: integer
  *                 averageRating:
  *                   type: number
+ *                 mostViewedTheater:
+ *                   type: object
+ *                   nullable: true
+ *                   properties:
+ *                     name:
+ *                       type: string
+ *                     count:
+ *                       type: integer
  *       401:
  *         description: 인증 실패
  *         content:
@@ -160,6 +168,7 @@ router.get("/summary", async (req: Request, res: Response): Promise<void> => {
       uniquePerformances,
       actorCounts,
       performanceCounts,
+      theaterCounts,
     ] = await Promise.all([
       prisma.ticket.count({ where }),
       prisma.ticket.aggregate({
@@ -204,6 +213,19 @@ router.get("/summary", async (req: Request, res: Response): Promise<void> => {
         },
         take: 1,
       }),
+      prisma.ticket.groupBy({
+        by: ["theater"],
+        where,
+        _count: {
+          theater: true,
+        },
+        orderBy: {
+          _count: {
+            theater: "desc",
+          },
+        },
+        take: 1,
+      }),
     ]);
 
     const totalTicketPrice = totalTicketPriceResult._sum.ticketPrice || 0;
@@ -225,6 +247,14 @@ router.get("/summary", async (req: Request, res: Response): Promise<void> => {
           }
         : null;
 
+    const mostViewedTheater =
+      theaterCounts.length > 0
+        ? {
+            name: theaterCounts[0].theater,
+            count: theaterCounts[0]._count.theater,
+          }
+        : null;
+
     res.json({
       totalCount,
       totalTicketPrice,
@@ -232,6 +262,7 @@ router.get("/summary", async (req: Request, res: Response): Promise<void> => {
       uniquePerformances: uniquePerformances.length,
       mostViewedActor,
       mostViewedPerformance,
+      mostViewedTheater,
     });
   } catch (error) {
     console.error("전체 통계 요약 오류:", error);
