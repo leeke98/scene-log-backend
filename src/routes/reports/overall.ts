@@ -69,25 +69,37 @@ function getISOWeek(date: Date): number {
 
 /**
  * 월 내 주 번호 계산 (해당 월의 첫째주, 둘째주 등)
+ * 월요일을 주의 시작으로 간주
  */
 function getWeekInMonth(date: Date): number {
   const firstDayOfMonth = new Date(date.getFullYear(), date.getMonth(), 1);
   const firstDayOfWeek = firstDayOfMonth.getDay(); // 0(일요일) ~ 6(토요일)
 
-  // 월요일을 주의 시작으로 간주 (월요일 = 1)
+  // 월요일을 주의 시작으로 간주 (월요일 = 1, 일요일 = 7)
   const adjustedFirstDayOfWeek = firstDayOfWeek === 0 ? 7 : firstDayOfWeek;
 
   const dayOfMonth = date.getDate();
-  // 첫 주의 일수 계산 (월요일부터 시작)
-  const daysInFirstWeek = 8 - adjustedFirstDayOfWeek;
 
-  if (dayOfMonth <= daysInFirstWeek) {
-    return 1; // 첫째주
+  // 첫 주의 시작일(월요일)까지의 일수 계산
+  // 첫 날이 월요일이면 0, 화요일이면 1, ..., 일요일이면 6
+  const daysToFirstMonday =
+    adjustedFirstDayOfWeek === 1 ? 0 : 8 - adjustedFirstDayOfWeek;
+
+  // 첫 번째 월요일의 날짜
+  const firstMonday = daysToFirstMonday + 1;
+
+  if (dayOfMonth < firstMonday) {
+    // 첫 번째 월요일 이전이면 첫째주
+    return 1;
   }
 
-  // 첫째주 이후의 주 번호 계산
-  const remainingDays = dayOfMonth - daysInFirstWeek;
-  return Math.ceil(remainingDays / 7) + 1;
+  // 첫 번째 월요일부터의 일수 계산
+  const daysFromFirstMonday = dayOfMonth - firstMonday;
+
+  // 주 번호 계산 (첫 번째 월요일이 포함된 주가 첫째주)
+  const weekNumber = Math.floor(daysFromFirstMonday / 7) + 1;
+
+  return weekNumber;
 }
 
 /**
