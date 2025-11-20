@@ -79,28 +79,61 @@ const getYearMonthFilter = (year: string, month: string) => {
  *         schema:
  *           type: string
  *         description: "월 (year와 함께 사용, 예: 01, 02, ..., 12)"
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *           minimum: 1
+ *         description: "페이지 번호 (1부터 시작)"
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *           minimum: 1
+ *           maximum: 100
+ *         description: "페이지당 항목 수"
  *     responses:
  *       200:
  *         description: "배우별 통계 데이터"
  *         content:
  *           application/json:
  *             schema:
- *               type: array
- *               items:
- *                 type: object
- *                 properties:
- *                   actorName:
- *                     type: string
- *                   viewCount:
- *                     type: integer
- *                   totalTicketPrice:
- *                     type: integer
- *                   uniquePerformances:
- *                     type: integer
- *                   performanceList:
- *                     type: array
- *                     items:
- *                       type: string
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       actorName:
+ *                         type: string
+ *                       viewCount:
+ *                         type: integer
+ *                       totalTicketPrice:
+ *                         type: integer
+ *                       uniquePerformances:
+ *                         type: integer
+ *                       performanceList:
+ *                         type: array
+ *                         items:
+ *                           type: string
+ *                 pagination:
+ *                   type: object
+ *                   properties:
+ *                     total:
+ *                       type: integer
+ *                       description: "전체 배우 수"
+ *                     page:
+ *                       type: integer
+ *                       description: "현재 페이지 번호"
+ *                     limit:
+ *                       type: integer
+ *                       description: "페이지당 항목 수"
+ *                     totalPages:
+ *                       type: integer
+ *                       description: "전체 페이지 수"
  *       401:
  *         description: "인증 실패"
  *         content:
@@ -111,7 +144,28 @@ const getYearMonthFilter = (year: string, month: string) => {
 router.get("/actors", async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
-    const { search, year, month } = req.query;
+    const { search, year, month, page, limit } = req.query;
+
+    // 페이징 파라미터 파싱 및 기본값 설정
+    const pageNum = parseInt((page as string) || "1", 10);
+    const limitNum = parseInt((limit as string) || "20", 10);
+
+    // 유효성 검사
+    if (pageNum < 1) {
+      res.status(400).json({
+        error: "페이지 번호는 1 이상이어야 합니다.",
+        code: "INVALID_PAGE",
+      });
+      return;
+    }
+
+    if (limitNum < 1 || limitNum > 100) {
+      res.status(400).json({
+        error: "페이지당 항목 수는 1 이상 100 이하여야 합니다.",
+        code: "INVALID_LIMIT",
+      });
+      return;
+    }
 
     const where: any = {
       ticket: {
@@ -181,7 +235,7 @@ router.get("/actors", async (req: Request, res: Response): Promise<void> => {
       actorData[actorName].performances.add(casting.ticket.performanceName);
     });
 
-    const result = Object.entries(actorData)
+    const allResults = Object.entries(actorData)
       .map(([actorName, data]) => ({
         actorName,
         viewCount: data.viewCount,
@@ -191,7 +245,22 @@ router.get("/actors", async (req: Request, res: Response): Promise<void> => {
       }))
       .sort((a, b) => b.viewCount - a.viewCount);
 
-    res.json(result);
+    // 페이징 처리
+    const total = allResults.length;
+    const totalPages = Math.ceil(total / limitNum);
+    const startIndex = (pageNum - 1) * limitNum;
+    const endIndex = startIndex + limitNum;
+    const paginatedResults = allResults.slice(startIndex, endIndex);
+
+    res.json({
+      data: paginatedResults,
+      pagination: {
+        total,
+        page: pageNum,
+        limit: limitNum,
+        totalPages,
+      },
+    });
   } catch (error) {
     console.error("배우별 통계 오류:", error);
     res.status(500).json({
