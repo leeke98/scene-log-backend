@@ -83,21 +83,10 @@ const formatTicketResponse = (ticket: any) => {
  *       - bearerAuth: []
  *     parameters:
  *       - in: query
- *         name: date
- *         schema:
- *           type: string
- *           format: date
- *         description: 특정 날짜 (YYYY-MM-DD)
- *       - in: query
  *         name: year
  *         schema:
  *           type: string
  *         description: 연도
- *       - in: query
- *         name: month
- *         schema:
- *           type: string
- *         description: 월 (YYYY-MM 형식)
  *       - in: query
  *         name: genre
  *         schema:
@@ -105,16 +94,24 @@ const formatTicketResponse = (ticket: any) => {
  *           enum: [연극, 뮤지컬]
  *         description: 장르
  *       - in: query
+ *         name: performanceName
+ *         schema:
+ *           type: string
+ *         description: 작품명 검색 (부분 일치)
+ *       - in: query
  *         name: page
  *         schema:
  *           type: integer
  *           default: 1
+ *           minimum: 1
  *         description: 페이지 번호
  *       - in: query
  *         name: limit
  *         schema:
  *           type: integer
  *           default: 50
+ *           minimum: 1
+ *           maximum: 100
  *         description: 페이지당 항목 수
  *     responses:
  *       200:
@@ -122,9 +119,27 @@ const formatTicketResponse = (ticket: any) => {
  *         content:
  *           application/json:
  *             schema:
- *               type: array
- *               items:
- *                 $ref: '#/components/schemas/Ticket'
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Ticket'
+ *                 pagination:
+ *                   type: object
+ *                   properties:
+ *                     total:
+ *                       type: integer
+ *                       description: 전체 티켓 수
+ *                     page:
+ *                       type: integer
+ *                       description: 현재 페이지 번호
+ *                     limit:
+ *                       type: integer
+ *                       description: 페이지당 항목 수
+ *                     totalPages:
+ *                       type: integer
+ *                       description: 전체 페이지 수
  *       401:
  *         description: 인증 실패
  *         content:
@@ -135,10 +150,29 @@ const formatTicketResponse = (ticket: any) => {
 router.get("/", async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
-    const { date, year, month, genre, page = "1", limit = "50" } = req.query;
+    const { year, genre, performanceName, page, limit } = req.query;
 
-    const pageNum = parseInt(page as string, 10);
-    const limitNum = parseInt(limit as string, 10);
+    // 페이징 파라미터 파싱 및 기본값 설정
+    const pageNum = parseInt((page as string) || "1", 10);
+    const limitNum = parseInt((limit as string) || "50", 10);
+
+    // 유효성 검사
+    if (pageNum < 1) {
+      res.status(400).json({
+        error: "페이지 번호는 1 이상이어야 합니다.",
+        code: "INVALID_PAGE",
+      });
+      return;
+    }
+
+    if (limitNum < 1 || limitNum > 100) {
+      res.status(400).json({
+        error: "페이지당 항목 수는 1 이상 100 이하여야 합니다.",
+        code: "INVALID_LIMIT",
+      });
+      return;
+    }
+
     const skip = (pageNum - 1) * limitNum;
 
     // 필터 조건 구성
@@ -146,20 +180,7 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
       userId,
     };
 
-    if (date) {
-      // 특정 날짜 필터
-      const targetDate = parseDate(date as string);
-      where.date = targetDate;
-    } else if (year && month) {
-      // 연도-월 필터 (YYYY-MM)
-      const [yearStr, monthStr] = (month as string).split("-");
-      const startDate = new Date(`${yearStr}-${monthStr}-01`);
-      const endDate = new Date(`${yearStr}-${monthStr}-31`);
-      where.date = {
-        gte: startDate,
-        lte: endDate,
-      };
-    } else if (year) {
+    if (year) {
       // 연도 필터
       const startDate = new Date(`${year}-01-01`);
       const endDate = new Date(`${year}-12-31`);
@@ -177,6 +198,16 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
         where.genre = Genre.MUSICAL;
       }
     }
+
+    if (performanceName) {
+      // 작품명 검색 (부분 일치)
+      where.performanceName = {
+        contains: performanceName as string,
+      };
+    }
+
+    // 전체 개수 조회
+    const total = await prisma.ticket.count({ where });
 
     // 티켓 조회
     const tickets = await prisma.ticket.findMany({
@@ -198,7 +229,18 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
     // 응답 형식으로 변환
     const formattedTickets = tickets.map(formatTicketResponse);
 
-    res.json(formattedTickets);
+    // 페이징 정보 계산
+    const totalPages = Math.ceil(total / limitNum);
+
+    res.json({
+      data: formattedTickets,
+      pagination: {
+        total,
+        page: pageNum,
+        limit: limitNum,
+        totalPages,
+      },
+    });
   } catch (error) {
     console.error("티켓 목록 조회 오류:", error);
     res.status(500).json({
