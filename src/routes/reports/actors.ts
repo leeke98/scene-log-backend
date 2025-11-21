@@ -431,15 +431,20 @@ router.get(
         performanceList: Array.from(performances),
       };
 
-      const tickets = castings.map((casting) => ({
-        id: casting.ticket.id,
-        date: casting.ticket.date.toISOString().split("T")[0],
-        performanceName: casting.ticket.performanceName,
-        theater: casting.ticket.theater,
-        seat: casting.ticket.seat,
-        rating: casting.ticket.rating,
-        posterUrl: casting.ticket.posterUrl,
-      }));
+      const tickets = castings
+        .map((casting) => ({
+          id: casting.ticket.id,
+          date: casting.ticket.date.toISOString().split("T")[0],
+          performanceName: casting.ticket.performanceName,
+          theater: casting.ticket.theater,
+          seat: casting.ticket.seat,
+          rating: casting.ticket.rating,
+          posterUrl: casting.ticket.posterUrl,
+        }))
+        .sort((a, b) => {
+          // 관람일 기준 최신순 정렬 (내림차순)
+          return new Date(b.date).getTime() - new Date(a.date).getTime();
+        });
 
       res.json({
         actor,
