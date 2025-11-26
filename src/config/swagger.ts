@@ -13,8 +13,9 @@ const swaggerDefinition: SwaggerDefinition = {
   },
   servers: [
     {
-      url: `http://localhost:${process.env.PORT || 3001}`,
-      description: "개발 서버",
+      url: "/", // 상대 경로 사용 (요청 호스트 기반)
+      description:
+        process.env.NODE_ENV === "production" ? "프로덕션 서버" : "개발 서버",
     },
   ],
   components: {
