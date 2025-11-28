@@ -3,6 +3,24 @@ import { XMLParser } from "fast-xml-parser";
 
 const router = Router();
 
+// CORS 헤더 설정 미들웨어
+router.use((req: Request, res: Response, next: () => void) => {
+  const origin = req.headers.origin;
+  res.header("Access-Control-Allow-Origin", origin || "*");
+  res.header(
+    "Access-Control-Allow-Methods",
+    "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+  );
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.header("Access-Control-Allow-Credentials", "true");
+
+  if (req.method === "OPTIONS") {
+    res.sendStatus(200);
+    return;
+  }
+  next();
+});
+
 // XML 파서 설정
 const xmlParser = new XMLParser({
   ignoreAttributes: false,
@@ -68,7 +86,8 @@ function parsePerformancePeriod(prfpd: string): { from: string; to: string } {
  */
 router.get("/boxoffice", async (req: Request, res: Response): Promise<void> => {
   try {
-    const { genre, serviceKey } = req.query;
+    const { genre } = req.query;
+    const serviceKey = process.env.KOPIS_SERVICE_KEY;
 
     if (!serviceKey) {
       res.status(500).json({
