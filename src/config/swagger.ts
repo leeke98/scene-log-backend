@@ -150,6 +150,10 @@ const swaggerDefinition: SwaggerDefinition = {
       name: "Reports",
       description: "리포트 관련 API",
     },
+    {
+      name: "KOPIS",
+      description: "KOPIS Open API 프록시",
+    },
   ],
 };
 

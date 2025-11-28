@@ -7,6 +7,7 @@ import userRoutes from "./routes/users";
 import authRoutes from "./routes/auth";
 import ticketRoutes from "./routes/tickets";
 import reportRoutes from "./routes/reports/index";
+import kopisRoutes from "./routes/kopis";
 
 dotenv.config();
 
@@ -86,6 +87,7 @@ app.use("/api/users", userRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/tickets", ticketRoutes);
 app.use("/api/reports", reportRoutes);
+app.use("/api/kopis", kopisRoutes);
 
 // Start server
 const server = app.listen(PORT, () => {
