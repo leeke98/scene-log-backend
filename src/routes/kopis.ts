@@ -68,8 +68,7 @@ function parsePerformancePeriod(prfpd: string): { from: string; to: string } {
  */
 router.get("/boxoffice", async (req: Request, res: Response): Promise<void> => {
   try {
-    const { genre } = req.query;
-    const serviceKey = process.env.KOPIS_SERVICE_KEY;
+    const { genre, serviceKey } = req.query;
 
     if (!serviceKey) {
       res.status(500).json({
