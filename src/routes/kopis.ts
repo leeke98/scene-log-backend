@@ -3,24 +3,6 @@ import { XMLParser } from "fast-xml-parser";
 
 const router = Router();
 
-// CORS 헤더 설정 미들웨어
-router.use((req: Request, res: Response, next: () => void) => {
-  const origin = req.headers.origin;
-  res.header("Access-Control-Allow-Origin", origin || "*");
-  res.header(
-    "Access-Control-Allow-Methods",
-    "GET, POST, PUT, DELETE, PATCH, OPTIONS"
-  );
-  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  res.header("Access-Control-Allow-Credentials", "true");
-
-  if (req.method === "OPTIONS") {
-    res.sendStatus(200);
-    return;
-  }
-  next();
-});
-
 // XML 파서 설정
 const xmlParser = new XMLParser({
   ignoreAttributes: false,
@@ -36,21 +18,6 @@ function formatDate(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}${month}${day}`;
-}
-
-/**
- * 공연 기간 문자열 파싱 (예: "2025.12.02~2026.03.02")
- */
-function parsePerformancePeriod(prfpd: string): { from: string; to: string } {
-  const parts = prfpd.split("~");
-  if (parts.length === 2) {
-    return {
-      from: parts[0].trim().replace(/\./g, "-"),
-      to: parts[1].trim().replace(/\./g, "-"),
-    };
-  }
-  // 파싱 실패 시 빈 문자열 반환
-  return { from: "", to: "" };
 }
 
 /**
@@ -78,7 +45,7 @@ function parsePerformancePeriod(prfpd: string): { from: string; to: string } {
  *                 data:
  *                   type: array
  *                   items:
- *                     $ref: '#/components/schemas/KopisPerformance'
+ *                     $ref: '#/components/schemas/KopisBoxofficeItem'
  *       400:
  *         description: 잘못된 요청
  *       500:
@@ -137,18 +104,10 @@ router.get("/boxoffice", async (req: Request, res: Response): Promise<void> => {
 
     // 응답 형식 변환
     const performances = boxofArray.map((item: any) => {
-      const period = parsePerformancePeriod(item.prfpd || "");
       return {
         mt20id: item.mt20id || "",
-        prfnm: item.prfnm || "",
-        prfpdfrom: period.from,
-        prfpdto: period.to,
-        fcltynm: item.prfplcnm || "",
         poster: item.poster || "",
-        area: item.area || "",
         genrenm: item.cate || "",
-        openrun: item.openrun || "",
-        prfstate: item.prfstate || "",
       };
     });
 
@@ -220,12 +179,9 @@ router.get("/boxoffice", async (req: Request, res: Response): Promise<void> => {
  *         content:
  *           application/json:
  *             schema:
- *               type: object
- *               properties:
- *                 data:
- *                   type: array
- *                   items:
- *                     $ref: '#/components/schemas/KopisPerformance'
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/KopisPerformance'
  *       400:
  *         description: 잘못된 요청
  *       500:
@@ -313,12 +269,11 @@ router.get(
       const performances = dbArray
         .filter((item: any) => item.mt20id) // 유효한 공연만 필터링
         .map((item: any) => {
-          const period = parsePerformancePeriod(item.prfpd || "");
           return {
             mt20id: item.mt20id || "",
             prfnm: item.prfnm || "",
-            prfpdfrom: period.from,
-            prfpdto: period.to,
+            prfpdfrom: item.prfpdfrom || "",
+            prfpdto: item.prfpdto || "",
             fcltynm: item.fcltynm || "",
             poster: item.poster || "",
             area: item.area || "",
@@ -416,14 +371,12 @@ router.get(
         return;
       }
 
-      const period = parsePerformancePeriod(db.prfpd || "");
-
       // 응답 형식 변환 (모든 필드를 포함)
       const performance: Record<string, string | undefined> = {
         mt20id: db.mt20id || mt20id,
         prfnm: db.prfnm || "",
-        prfpdfrom: period.from,
-        prfpdto: period.to,
+        prfpdfrom: db.prfpdfrom || "",
+        prfpdto: db.prfpdto || "",
         fcltynm: db.fcltynm || "",
         poster: db.poster || "",
         area: db.area || "",

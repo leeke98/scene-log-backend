@@ -131,6 +131,106 @@ const swaggerDefinition: SwaggerDefinition = {
           },
         },
       },
+      KopisBoxofficeItem: {
+        type: "object",
+        properties: {
+          mt20id: {
+            type: "string",
+            description: "공연 ID",
+          },
+          poster: {
+            type: "string",
+            description: "포스터 URL",
+          },
+          genrenm: {
+            type: "string",
+            description: "장르명",
+          },
+        },
+      },
+      KopisPerformance: {
+        type: "object",
+        properties: {
+          mt20id: {
+            type: "string",
+            description: "공연 ID",
+          },
+          prfnm: {
+            type: "string",
+            description: "공연명",
+          },
+          prfpdfrom: {
+            type: "string",
+            description: "공연 시작일",
+          },
+          prfpdto: {
+            type: "string",
+            description: "공연 종료일",
+          },
+          fcltynm: {
+            type: "string",
+            description: "시설명(극장)",
+          },
+          poster: {
+            type: "string",
+            description: "포스터 URL",
+          },
+          area: {
+            type: "string",
+            description: "지역",
+          },
+          genrenm: {
+            type: "string",
+            description: "장르명",
+          },
+          openrun: {
+            type: "string",
+            description: "오픈런 여부",
+          },
+          prfstate: {
+            type: "string",
+            description: "공연 상태",
+          },
+        },
+      },
+      KopisPerformanceDetail: {
+        allOf: [
+          { $ref: "#/components/schemas/KopisPerformance" },
+          {
+            type: "object",
+            properties: {
+              prfcast: {
+                type: "string",
+                description: "캐스팅",
+              },
+              prfcrew: {
+                type: "string",
+                description: "제작진",
+              },
+              prfruntime: {
+                type: "string",
+                description: "공연 시간",
+              },
+              prfage: {
+                type: "string",
+                description: "관람 연령",
+              },
+              pcseguidance: {
+                type: "string",
+                description: "가격 안내",
+              },
+              dtguidance: {
+                type: "string",
+                description: "시간 안내",
+              },
+              mt10id: {
+                type: "string",
+                description: "시설 ID",
+              },
+            },
+          },
+        ],
+      },
     },
   },
   tags: [
