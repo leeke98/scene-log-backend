@@ -1,5 +1,6 @@
 import express, { Request, Response } from "express";
 import dotenv from "dotenv";
+import cookieParser from "cookie-parser";
 import swaggerUi from "swagger-ui-express";
 import { prisma } from "./lib/prisma";
 import { swaggerSpec } from "./config/swagger";
@@ -34,6 +35,7 @@ app.use((req: Request, res: Response, next: () => void) => {
 });
 
 // Middleware
+app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

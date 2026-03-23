@@ -7,15 +7,33 @@ import { authenticate } from "../middleware/auth";
 const router = Router();
 
 const JWT_SECRET: string = process.env.JWT_SECRET || "your-secret-key";
-const JWT_EXPIRES_IN: string = process.env.JWT_EXPIRES_IN || "7d";
+const JWT_EXPIRES_IN: string = process.env.JWT_EXPIRES_IN || "15m";
+const REFRESH_TOKEN_SECRET: string =
+  process.env.REFRESH_TOKEN_SECRET || "your-refresh-secret-key";
+const REFRESH_TOKEN_EXPIRES_IN: string =
+  process.env.REFRESH_TOKEN_EXPIRES_IN || "7d";
 
-/**
- * JWT 토큰 생성 헬퍼 함수
- */
-const generateToken = (userId: string, username: string): string => {
+const generateAccessToken = (userId: string, username: string): string => {
   return jwt.sign({ userId, username }, JWT_SECRET, {
     expiresIn: JWT_EXPIRES_IN,
   } as jwt.SignOptions);
+};
+
+const generateRefreshToken = (userId: string): string => {
+  return jwt.sign({ userId }, REFRESH_TOKEN_SECRET, {
+    expiresIn: REFRESH_TOKEN_EXPIRES_IN,
+  } as jwt.SignOptions);
+};
+
+const setRefreshTokenCookie = (res: Response, refreshToken: string): void => {
+  const maxAge = 7 * 24 * 60 * 60 * 1000; // 7일
+  res.cookie("refresh_token", refreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    maxAge,
+    path: "/api/auth",
+  });
 };
 
 /**
@@ -46,7 +64,7 @@ const generateToken = (userId: string, username: string): string => {
  *                 description: 닉네임
  *     responses:
  *       201:
- *         description: 회원가입 성공
+ *         description: 회원가입 성공 (access_token 반환, refresh_token은 httpOnly 쿠키로 설정)
  *         content:
  *           application/json:
  *             schema:
@@ -54,7 +72,7 @@ const generateToken = (userId: string, username: string): string => {
  *               properties:
  *                 message:
  *                   type: string
- *                 token:
+ *                 access_token:
  *                   type: string
  *                 user:
  *                   $ref: '#/components/schemas/User'
@@ -75,7 +93,6 @@ router.post("/signup", async (req: Request, res: Response): Promise<void> => {
   try {
     const { username, password, nickname } = req.body;
 
-    // 입력 검증
     if (!username || !password || !nickname) {
       res.status(400).json({
         error: "모든 필드(username, password, nickname)가 필요합니다.",
@@ -84,11 +101,7 @@ router.post("/signup", async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // 사용자명 중복 확인
-    const existingUser = await prisma.user.findUnique({
-      where: { username },
-    });
-
+    const existingUser = await prisma.user.findUnique({ where: { username } });
     if (existingUser) {
       res.status(409).json({
         error: "이미 사용 중인 사용자명입니다.",
@@ -97,36 +110,30 @@ router.post("/signup", async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // 비밀번호 해싱
-    const saltRounds = 10;
-    const hashedPassword = await bcrypt.hash(password, saltRounds);
-
-    // 사용자 생성
+    const hashedPassword = await bcrypt.hash(password, 10);
     const user = await prisma.user.create({
+      data: { username, password: hashedPassword, nickname },
+      select: { id: true, username: true, nickname: true, createdAt: true },
+    });
+
+    const accessToken = generateAccessToken(user.id, user.username);
+    const refreshToken = generateRefreshToken(user.id);
+
+    const decoded = jwt.decode(refreshToken) as jwt.JwtPayload;
+    await prisma.refreshToken.create({
       data: {
-        username,
-        password: hashedPassword,
-        nickname,
-      },
-      select: {
-        id: true,
-        username: true,
-        nickname: true,
-        createdAt: true,
+        token: refreshToken,
+        userId: user.id,
+        expiresAt: new Date(decoded.exp! * 1000),
       },
     });
 
-    // JWT 토큰 생성
-    const token = generateToken(user.id, user.username);
+    setRefreshTokenCookie(res, refreshToken);
 
     res.status(201).json({
       message: "회원가입이 완료되었습니다.",
-      token,
-      user: {
-        id: user.id,
-        username: user.username,
-        nickname: user.nickname,
-      },
+      access_token: accessToken,
+      user: { id: user.id, username: user.username, nickname: user.nickname },
     });
   } catch (error) {
     console.error("회원가입 오류:", error);
@@ -161,7 +168,7 @@ router.post("/signup", async (req: Request, res: Response): Promise<void> => {
  *                 description: 비밀번호
  *     responses:
  *       200:
- *         description: 로그인 성공
+ *         description: 로그인 성공 (access_token 반환, refresh_token은 httpOnly 쿠키로 설정)
  *         content:
  *           application/json:
  *             schema:
@@ -169,7 +176,7 @@ router.post("/signup", async (req: Request, res: Response): Promise<void> => {
  *               properties:
  *                 message:
  *                   type: string
- *                 token:
+ *                 access_token:
  *                   type: string
  *                 user:
  *                   $ref: '#/components/schemas/User'
@@ -184,7 +191,6 @@ router.post("/login", async (req: Request, res: Response): Promise<void> => {
   try {
     const { username, password } = req.body;
 
-    // 입력 검증
     if (!username || !password) {
       res.status(400).json({
         error: "username과 password가 필요합니다.",
@@ -193,11 +199,7 @@ router.post("/login", async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // 사용자 조회
-    const user = await prisma.user.findUnique({
-      where: { username },
-    });
-
+    const user = await prisma.user.findUnique({ where: { username } });
     if (!user) {
       res.status(401).json({
         error: "사용자명 또는 비밀번호가 올바르지 않습니다.",
@@ -206,9 +208,7 @@ router.post("/login", async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // 비밀번호 검증
     const isPasswordValid = await bcrypt.compare(password, user.password);
-
     if (!isPasswordValid) {
       res.status(401).json({
         error: "사용자명 또는 비밀번호가 올바르지 않습니다.",
@@ -217,23 +217,178 @@ router.post("/login", async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // JWT 토큰 생성
-    const token = generateToken(user.id, user.username);
+    const accessToken = generateAccessToken(user.id, user.username);
+    const refreshToken = generateRefreshToken(user.id);
+
+    const decoded = jwt.decode(refreshToken) as jwt.JwtPayload;
+    await prisma.refreshToken.create({
+      data: {
+        token: refreshToken,
+        userId: user.id,
+        expiresAt: new Date(decoded.exp! * 1000),
+      },
+    });
+
+    setRefreshTokenCookie(res, refreshToken);
 
     res.json({
       message: "로그인 성공",
-      token,
-      user: {
-        id: user.id,
-        username: user.username,
-        nickname: user.nickname,
-      },
+      access_token: accessToken,
+      user: { id: user.id, username: user.username, nickname: user.nickname },
     });
   } catch (error) {
     console.error("로그인 오류:", error);
     res.status(500).json({
       error: "로그인 중 오류가 발생했습니다.",
       code: "LOGIN_ERROR",
+    });
+  }
+});
+
+/**
+ * @openapi
+ * /api/auth/refresh:
+ *   post:
+ *     summary: Access token 재발급
+ *     tags: [Auth]
+ *     description: httpOnly 쿠키의 refresh_token을 사용해 새 access_token을 발급합니다. refresh_token도 rotation됩니다.
+ *     responses:
+ *       200:
+ *         description: 토큰 재발급 성공
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 access_token:
+ *                   type: string
+ *       401:
+ *         description: 유효하지 않거나 만료된 refresh_token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post("/refresh", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const refreshToken: string | undefined = req.cookies?.refresh_token;
+
+    if (!refreshToken) {
+      res.status(401).json({
+        error: "Refresh token이 없습니다.",
+        code: "NO_REFRESH_TOKEN",
+      });
+      return;
+    }
+
+    // JWT 서명 및 만료 검증
+    let payload: jwt.JwtPayload;
+    try {
+      payload = jwt.verify(refreshToken, REFRESH_TOKEN_SECRET) as jwt.JwtPayload;
+    } catch {
+      res.clearCookie("refresh_token", { path: "/api/auth" });
+      res.status(401).json({
+        error: "유효하지 않거나 만료된 refresh token입니다.",
+        code: "INVALID_REFRESH_TOKEN",
+      });
+      return;
+    }
+
+    // DB에서 토큰 존재 여부 확인 (revocation 체크)
+    const storedToken = await prisma.refreshToken.findUnique({
+      where: { token: refreshToken },
+    });
+
+    if (!storedToken) {
+      res.clearCookie("refresh_token", { path: "/api/auth" });
+      res.status(401).json({
+        error: "유효하지 않거나 만료된 refresh token입니다.",
+        code: "INVALID_REFRESH_TOKEN",
+      });
+      return;
+    }
+
+    // 사용자 조회
+    const user = await prisma.user.findUnique({
+      where: { id: payload.userId },
+      select: { id: true, username: true },
+    });
+
+    if (!user) {
+      await prisma.refreshToken.delete({ where: { token: refreshToken } });
+      res.clearCookie("refresh_token", { path: "/api/auth" });
+      res.status(401).json({
+        error: "사용자를 찾을 수 없습니다.",
+        code: "USER_NOT_FOUND",
+      });
+      return;
+    }
+
+    // Refresh token rotation: 기존 토큰 삭제 후 새 토큰 발급
+    const newRefreshToken = generateRefreshToken(user.id);
+    const decoded = jwt.decode(newRefreshToken) as jwt.JwtPayload;
+
+    await prisma.$transaction([
+      prisma.refreshToken.delete({ where: { token: refreshToken } }),
+      prisma.refreshToken.create({
+        data: {
+          token: newRefreshToken,
+          userId: user.id,
+          expiresAt: new Date(decoded.exp! * 1000),
+        },
+      }),
+    ]);
+
+    setRefreshTokenCookie(res, newRefreshToken);
+
+    const accessToken = generateAccessToken(user.id, user.username);
+    res.json({ access_token: accessToken });
+  } catch (error) {
+    console.error("토큰 갱신 오류:", error);
+    res.status(500).json({
+      error: "토큰 갱신 중 오류가 발생했습니다.",
+      code: "REFRESH_ERROR",
+    });
+  }
+});
+
+/**
+ * @openapi
+ * /api/auth/logout:
+ *   post:
+ *     summary: 로그아웃
+ *     tags: [Auth]
+ *     description: refresh_token 쿠키를 무효화하고 DB에서 삭제합니다.
+ *     responses:
+ *       200:
+ *         description: 로그아웃 성공
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ */
+router.post("/logout", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const refreshToken: string | undefined = req.cookies?.refresh_token;
+
+    if (refreshToken) {
+      await prisma.refreshToken
+        .delete({ where: { token: refreshToken } })
+        .catch(() => {
+          // 이미 삭제된 토큰이면 무시
+        });
+    }
+
+    res.clearCookie("refresh_token", { path: "/api/auth" });
+    res.json({ message: "로그아웃 되었습니다." });
+  } catch (error) {
+    console.error("로그아웃 오류:", error);
+    res.status(500).json({
+      error: "로그아웃 중 오류가 발생했습니다.",
+      code: "LOGOUT_ERROR",
     });
   }
 });
@@ -277,12 +432,7 @@ router.get(
 
       const user = await prisma.user.findUnique({
         where: { id: userId },
-        select: {
-          id: true,
-          username: true,
-          nickname: true,
-          createdAt: true,
-        },
+        select: { id: true, username: true, nickname: true, createdAt: true },
       });
 
       if (!user) {
