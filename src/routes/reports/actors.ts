@@ -1,58 +1,16 @@
 import { Router, Request, Response } from "express";
 import { prisma } from "../../lib/prisma";
 import { authenticate } from "../../middleware/auth";
+import {
+  buildDateFilter,
+  parsePagination,
+  isPaginationError,
+} from "../../lib/utils";
 
 const router = Router();
 
 // 모든 리포트 라우트는 인증 필요
 router.use(authenticate);
-
-/**
- * 연도 필터 조건 생성
- * @db.Date는 날짜만 저장하므로 시간 부분은 무시됨
- */
-const getYearFilter = (year?: string) => {
-  if (!year) return {};
-  const yearNum = parseInt(year, 10);
-  // UTC 자정으로 변환 (날짜만 비교)
-  const startDate = new Date(`${yearNum}-01-01T00:00:00.000Z`); // 1월 1일
-  const endDate = new Date(`${yearNum}-12-31T00:00:00.000Z`); // 12월 31일
-  return {
-    date: {
-      gte: startDate,
-      lte: endDate,
-    },
-  };
-};
-
-/**
- * 연도-월 필터 조건 생성
- * @db.Date는 날짜만 저장하므로 시간 부분은 무시됨
- */
-const getYearMonthFilter = (year: string, month: string) => {
-  const yearNum = parseInt(year, 10);
-  const monthNum = parseInt(month, 10);
-
-  // 해당 월의 첫 날 (UTC 자정)
-  const startDate = new Date(
-    `${yearNum}-${monthNum.toString().padStart(2, "0")}-01T00:00:00.000Z`
-  );
-
-  // 해당 월의 마지막 날 (UTC 자정)
-  const lastDay = new Date(yearNum, monthNum, 0).getDate();
-  const endDate = new Date(
-    `${yearNum}-${monthNum.toString().padStart(2, "0")}-${lastDay
-      .toString()
-      .padStart(2, "0")}T00:00:00.000Z`
-  );
-
-  return {
-    date: {
-      gte: startDate,
-      lte: endDate,
-    },
-  };
-};
 
 /**
  * @openapi
@@ -146,93 +104,48 @@ router.get("/actors", async (req: Request, res: Response): Promise<void> => {
     const userId = req.userId!;
     const { search, year, month, page, limit } = req.query;
 
-    // 페이징 파라미터 파싱 및 기본값 설정
-    const pageNum = parseInt((page as string) || "1", 10);
-    const limitNum = parseInt((limit as string) || "20", 10);
-
-    // 유효성 검사
-    if (pageNum < 1) {
-      res.status(400).json({
-        error: "페이지 번호는 1 이상이어야 합니다.",
-        code: "INVALID_PAGE",
-      });
+    const pagination = parsePagination(page, limit, 20);
+    if (isPaginationError(pagination)) {
+      res.status(400).json(pagination);
       return;
     }
+    const { pageNum, limitNum } = pagination;
 
-    if (limitNum < 1 || limitNum > 100) {
-      res.status(400).json({
-        error: "페이지당 항목 수는 1 이상 100 이하여야 합니다.",
-        code: "INVALID_LIMIT",
-      });
+    const dateFilter = buildDateFilter(year as string, month as string);
+    if (dateFilter === null) {
+      res.status(400).json({ error: "월은 1-12 사이의 값이어야 합니다.", code: "INVALID_MONTH" });
       return;
     }
 
     const where: any = {
-      ticket: {
-        userId,
-      },
+      ticket: { userId, ...dateFilter },
     };
 
-    // 필터 조건 설정
-    if (year && month && month !== "") {
-      // 연도-월별 조회: 해당 월에 본 작품들의 누적 통계
-      const monthStr = (month as string).padStart(2, "0");
-      if (parseInt(monthStr, 10) < 1 || parseInt(monthStr, 10) > 12) {
-        res.status(400).json({
-          error: "월은 1-12 사이의 값이어야 합니다.",
-          code: "INVALID_MONTH",
-        });
-        return;
-      }
-      const dateFilter = getYearMonthFilter(year as string, monthStr);
-      where.ticket.date = dateFilter.date;
-    } else if (year) {
-      // 연도별 조회: 해당 연도에 본 작품들의 누적 통계
-      const dateFilter = getYearFilter(year as string);
-      where.ticket.date = dateFilter.date;
-    }
-    // 파라미터가 없으면 전체 누적 데이터 (where에 추가 조건 없음)
-
     if (search) {
-      where.actorName = {
-        contains: search as string,
-      };
+      where.actorName = { contains: search as string };
     }
 
     const castings = await prisma.ticketCasting.findMany({
       where,
       include: {
-        ticket: {
-          select: {
-            ticketPrice: true,
-            performanceName: true,
-          },
-        },
+        ticket: { select: { ticketPrice: true, performanceName: true } },
       },
     });
 
     // 배우별로 그룹화
     const actorData: Record<
       string,
-      {
-        viewCount: number;
-        totalTicketPrice: number;
-        performances: Set<string>;
-      }
+      { viewCount: number; totalTicketPrice: number; performances: Set<string> }
     > = {};
 
     castings.forEach((casting) => {
-      const actorName = casting.actorName;
-      if (!actorData[actorName]) {
-        actorData[actorName] = {
-          viewCount: 0,
-          totalTicketPrice: 0,
-          performances: new Set(),
-        };
+      const name = casting.actorName;
+      if (!actorData[name]) {
+        actorData[name] = { viewCount: 0, totalTicketPrice: 0, performances: new Set() };
       }
-      actorData[actorName].viewCount++;
-      actorData[actorName].totalTicketPrice += casting.ticket.ticketPrice;
-      actorData[actorName].performances.add(casting.ticket.performanceName);
+      actorData[name].viewCount++;
+      actorData[name].totalTicketPrice += casting.ticket.ticketPrice;
+      actorData[name].performances.add(casting.ticket.performanceName);
     });
 
     const allResults = Object.entries(actorData)
@@ -245,12 +158,9 @@ router.get("/actors", async (req: Request, res: Response): Promise<void> => {
       }))
       .sort((a, b) => b.viewCount - a.viewCount);
 
-    // 페이징 처리
     const total = allResults.length;
-    const totalPages = Math.ceil(total / limitNum);
     const startIndex = (pageNum - 1) * limitNum;
-    const endIndex = startIndex + limitNum;
-    const paginatedResults = allResults.slice(startIndex, endIndex);
+    const paginatedResults = allResults.slice(startIndex, startIndex + limitNum);
 
     res.json({
       data: paginatedResults,
@@ -258,7 +168,7 @@ router.get("/actors", async (req: Request, res: Response): Promise<void> => {
         total,
         page: pageNum,
         limit: limitNum,
-        totalPages,
+        totalPages: Math.ceil(total / limitNum),
       },
     });
   } catch (error) {
@@ -361,32 +271,16 @@ router.get(
       const { actorName } = req.params;
       const { year, month } = req.query;
 
+      const dateFilter = buildDateFilter(year as string, month as string);
+      if (dateFilter === null) {
+        res.status(400).json({ error: "월은 1-12 사이의 값이어야 합니다.", code: "INVALID_MONTH" });
+        return;
+      }
+
       const where: any = {
         actorName: decodeURIComponent(actorName),
-        ticket: {
-          userId,
-        },
+        ticket: { userId, ...dateFilter },
       };
-
-      // 필터 조건 설정
-      if (year && month && month !== "") {
-        // 연도-월별 조회: 해당 월에 본 작품들의 누적 통계
-        const monthStr = (month as string).padStart(2, "0");
-        if (parseInt(monthStr, 10) < 1 || parseInt(monthStr, 10) > 12) {
-          res.status(400).json({
-            error: "월은 1-12 사이의 값이어야 합니다.",
-            code: "INVALID_MONTH",
-          });
-          return;
-        }
-        const dateFilter = getYearMonthFilter(year as string, monthStr);
-        where.ticket.date = dateFilter.date;
-      } else if (year) {
-        // 연도별 조회: 해당 연도에 본 작품들의 누적 통계
-        const dateFilter = getYearFilter(year as string);
-        where.ticket.date = dateFilter.date;
-      }
-      // 파라미터가 없으면 전체 누적 데이터 (where에 추가 조건 없음)
 
       const castings = await prisma.ticketCasting.findMany({
         where,
@@ -407,17 +301,12 @@ router.get(
       });
 
       if (castings.length === 0) {
-        res.status(404).json({
-          error: "배우를 찾을 수 없습니다.",
-          code: "ACTOR_NOT_FOUND",
-        });
+        res.status(404).json({ error: "배우를 찾을 수 없습니다.", code: "ACTOR_NOT_FOUND" });
         return;
       }
 
-      // 통계 계산
       const performances = new Set<string>();
       let totalTicketPrice = 0;
-
       castings.forEach((casting) => {
         performances.add(casting.ticket.performanceName);
         totalTicketPrice += casting.ticket.ticketPrice;
@@ -441,15 +330,9 @@ router.get(
           rating: casting.ticket.rating,
           posterUrl: casting.ticket.posterUrl,
         }))
-        .sort((a, b) => {
-          // 관람일 기준 최신순 정렬 (내림차순)
-          return new Date(b.date).getTime() - new Date(a.date).getTime();
-        });
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-      res.json({
-        actor,
-        tickets,
-      });
+      res.json({ actor, tickets });
     } catch (error) {
       console.error("배우 상세 정보 오류:", error);
       res.status(500).json({

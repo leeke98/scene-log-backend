@@ -2,58 +2,17 @@ import { Router, Request, Response } from "express";
 import { prisma } from "../../lib/prisma";
 import { authenticate } from "../../middleware/auth";
 import { Genre } from "@prisma/client";
+import {
+  buildDateFilter,
+  formatGenre,
+  parsePagination,
+  isPaginationError,
+} from "../../lib/utils";
 
 const router = Router();
 
 // 모든 리포트 라우트는 인증 필요
 router.use(authenticate);
-
-/**
- * 연도 필터 조건 생성
- * @db.Date는 날짜만 저장하므로 시간 부분은 무시됨
- */
-const getYearFilter = (year?: string) => {
-  if (!year) return {};
-  const yearNum = parseInt(year, 10);
-  // UTC 자정으로 변환 (날짜만 비교)
-  const startDate = new Date(`${yearNum}-01-01T00:00:00.000Z`); // 1월 1일
-  const endDate = new Date(`${yearNum}-12-31T00:00:00.000Z`); // 12월 31일
-  return {
-    date: {
-      gte: startDate,
-      lte: endDate,
-    },
-  };
-};
-
-/**
- * 연도-월 필터 조건 생성
- * @db.Date는 날짜만 저장하므로 시간 부분은 무시됨
- */
-const getYearMonthFilter = (year: string, month: string) => {
-  const yearNum = parseInt(year, 10);
-  const monthNum = parseInt(month, 10);
-
-  // 해당 월의 첫 날 (UTC 자정)
-  const startDate = new Date(
-    `${yearNum}-${monthNum.toString().padStart(2, "0")}-01T00:00:00.000Z`
-  );
-
-  // 해당 월의 마지막 날 (UTC 자정)
-  const lastDay = new Date(yearNum, monthNum, 0).getDate();
-  const endDate = new Date(
-    `${yearNum}-${monthNum.toString().padStart(2, "0")}-${lastDay
-      .toString()
-      .padStart(2, "0")}T00:00:00.000Z`
-  );
-
-  return {
-    date: {
-      gte: startDate,
-      lte: endDate,
-    },
-  };
-};
 
 /**
  * @openapi
@@ -152,78 +111,34 @@ router.get(
       const userId = req.userId!;
       const { search, year, month, page, limit } = req.query;
 
-      // 페이징 파라미터 파싱 및 기본값 설정
-      const pageNum = parseInt((page as string) || "1", 10);
-      const limitNum = parseInt((limit as string) || "20", 10);
+      const pagination = parsePagination(page, limit, 20);
+      if (isPaginationError(pagination)) {
+        res.status(400).json(pagination);
+        return;
+      }
+      const { pageNum, limitNum } = pagination;
 
-      // 유효성 검사
-      if (pageNum < 1) {
-        res.status(400).json({
-          error: "페이지 번호는 1 이상이어야 합니다.",
-          code: "INVALID_PAGE",
-        });
+      const dateFilter = buildDateFilter(year as string, month as string);
+      if (dateFilter === null) {
+        res.status(400).json({ error: "월은 1-12 사이의 값이어야 합니다.", code: "INVALID_MONTH" });
         return;
       }
 
-      if (limitNum < 1 || limitNum > 100) {
-        res.status(400).json({
-          error: "페이지당 항목 수는 1 이상 100 이하여야 합니다.",
-          code: "INVALID_LIMIT",
-        });
-        return;
-      }
-
-      const where: any = {
-        userId,
-      };
-
-      // 필터 조건 설정
-      if (year && month && month !== "") {
-        // 연도-월별 조회: 해당 월에 본 작품들의 누적 통계
-        const monthStr = (month as string).padStart(2, "0");
-        if (parseInt(monthStr, 10) < 1 || parseInt(monthStr, 10) > 12) {
-          res.status(400).json({
-            error: "월은 1-12 사이의 값이어야 합니다.",
-            code: "INVALID_MONTH",
-          });
-          return;
-        }
-        const dateFilter = getYearMonthFilter(year as string, monthStr);
-        where.date = dateFilter.date;
-      } else if (year) {
-        // 연도별 조회: 해당 연도에 본 작품들의 누적 통계
-        const dateFilter = getYearFilter(year as string);
-        where.date = dateFilter.date;
-      }
-      // 파라미터가 없으면 전체 누적 데이터 (where에 추가 조건 없음)
+      const where: any = { userId, ...dateFilter };
 
       if (search) {
-        where.performanceName = {
-          contains: search as string,
-        };
+        where.performanceName = { contains: search as string };
       }
 
       const tickets = await prisma.ticket.findMany({
         where,
-        select: {
-          performanceName: true,
-          ticketPrice: true,
-          rating: true,
-          posterUrl: true,
-          genre: true,
-        },
+        select: { performanceName: true, ticketPrice: true, rating: true, posterUrl: true, genre: true },
       });
 
       // 작품별로 그룹화
       const performanceData: Record<
         string,
-        {
-          viewCount: number;
-          totalTicketPrice: number;
-          ratings: number[];
-          posterUrl: string | null;
-          genre: Genre | null;
-        }
+        { viewCount: number; totalTicketPrice: number; ratings: number[]; posterUrl: string | null; genre: Genre | null }
       > = {};
 
       tickets.forEach((ticket) => {
@@ -239,41 +154,29 @@ router.get(
         }
         performanceData[name].viewCount++;
         performanceData[name].totalTicketPrice += ticket.ticketPrice;
-        if (ticket.rating > 0) {
-          performanceData[name].ratings.push(ticket.rating);
-        }
+        if (ticket.rating > 0) performanceData[name].ratings.push(ticket.rating);
       });
 
       const allResults = Object.entries(performanceData)
         .map(([name, data]) => {
           const avgRating =
             data.ratings.length > 0
-              ? data.ratings.reduce((sum, r) => sum + r, 0) /
-                data.ratings.length
+              ? data.ratings.reduce((sum, r) => sum + r, 0) / data.ratings.length
               : 0;
-
           return {
             name,
             viewCount: data.viewCount,
             totalTicketPrice: data.totalTicketPrice,
             avgRating: Math.round(avgRating * 10) / 10,
             posterUrl: data.posterUrl,
-            genre:
-              data.genre === Genre.THEATER
-                ? "연극"
-                : data.genre === Genre.MUSICAL
-                ? "뮤지컬"
-                : null,
+            genre: formatGenre(data.genre),
           };
         })
         .sort((a, b) => b.viewCount - a.viewCount);
 
-      // 페이징 처리
       const total = allResults.length;
-      const totalPages = Math.ceil(total / limitNum);
       const startIndex = (pageNum - 1) * limitNum;
-      const endIndex = startIndex + limitNum;
-      const paginatedResults = allResults.slice(startIndex, endIndex);
+      const paginatedResults = allResults.slice(startIndex, startIndex + limitNum);
 
       res.json({
         data: paginatedResults,
@@ -281,7 +184,7 @@ router.get(
           total,
           page: pageNum,
           limit: limitNum,
-          totalPages,
+          totalPages: Math.ceil(total / limitNum),
         },
       });
     } catch (error) {
@@ -345,77 +248,43 @@ router.get(
       const userId = req.userId!;
       const { year, month } = req.query;
 
-      const where: any = {
-        userId,
-      };
-
-      // 필터 조건 설정 및 저장 (posterUrl 조회 시에도 사용)
-      let dateFilter: any = null;
-      if (year && month && month !== "") {
-        // 연도-월별 조회: 해당 월에 본 작품들의 누적 통계
-        const monthStr = (month as string).padStart(2, "0");
-        if (parseInt(monthStr, 10) < 1 || parseInt(monthStr, 10) > 12) {
-          res.status(400).json({
-            error: "월은 1-12 사이의 값이어야 합니다.",
-            code: "INVALID_MONTH",
-          });
-          return;
-        }
-        dateFilter = getYearMonthFilter(year as string, monthStr);
-        where.date = dateFilter.date;
-      } else if (year) {
-        // 연도별 조회: 해당 연도에 본 작품들의 누적 통계
-        dateFilter = getYearFilter(year as string);
-        where.date = dateFilter.date;
+      const dateFilter = buildDateFilter(year as string, month as string);
+      if (dateFilter === null) {
+        res.status(400).json({ error: "월은 1-12 사이의 값이어야 합니다.", code: "INVALID_MONTH" });
+        return;
       }
-      // 파라미터가 없으면 전체 누적 데이터 (where에 추가 조건 없음)
 
-      // 작품별로 그룹화하여 Top 10 조회
-      // performanceName으로만 그룹화 (posterUrl은 나중에 첫 번째 값만 가져옴)
+      const where: any = { userId, ...dateFilter };
+
       const performanceCounts = await prisma.ticket.groupBy({
         by: ["performanceName"],
         where,
-        _count: {
-          performanceName: true,
-        },
-        orderBy: {
-          _count: {
-            performanceName: "desc",
-          },
-        },
+        _count: { performanceName: true },
+        orderBy: { _count: { performanceName: "desc" } },
         take: 10,
       });
 
-      // 각 작품의 첫 번째 posterUrl 가져오기 (동일한 필터 조건 적용)
-      const result = await Promise.all(
-        performanceCounts.map(async (item) => {
-          const ticketWhere: any = {
-            userId,
-            performanceName: item.performanceName,
-          };
+      if (performanceCounts.length === 0) {
+        res.json([]);
+        return;
+      }
 
-          // 필터 조건이 있으면 동일하게 적용
-          if (dateFilter) {
-            ticketWhere.date = dateFilter.date;
-          }
+      // Top 10 작품의 posterUrl을 한 번의 쿼리로 조회
+      const performanceNames = performanceCounts.map((p) => p.performanceName);
+      const posterTickets = await prisma.ticket.findMany({
+        where: { userId, performanceName: { in: performanceNames }, ...dateFilter },
+        select: { performanceName: true, posterUrl: true },
+        orderBy: { date: "asc" },
+        distinct: ["performanceName"],
+      });
 
-          const firstTicket = await prisma.ticket.findFirst({
-            where: ticketWhere,
-            select: {
-              posterUrl: true,
-            },
-            orderBy: {
-              date: "asc", // 가장 오래된 티켓의 posterUrl 사용
-            },
-          });
+      const posterMap = new Map(posterTickets.map((t) => [t.performanceName, t.posterUrl]));
 
-          return {
-            performanceName: item.performanceName,
-            posterUrl: firstTicket?.posterUrl || null,
-            count: item._count.performanceName,
-          };
-        })
-      );
+      const result = performanceCounts.map((item) => ({
+        performanceName: item.performanceName,
+        posterUrl: posterMap.get(item.performanceName) ?? null,
+        count: item._count.performanceName,
+      }));
 
       res.json(result);
     } catch (error) {
@@ -534,30 +403,17 @@ router.get(
       const { performanceName } = req.params;
       const { year, month } = req.query;
 
+      const dateFilter = buildDateFilter(year as string, month as string);
+      if (dateFilter === null) {
+        res.status(400).json({ error: "월은 1-12 사이의 값이어야 합니다.", code: "INVALID_MONTH" });
+        return;
+      }
+
       const where: any = {
         userId,
         performanceName: decodeURIComponent(performanceName),
+        ...dateFilter,
       };
-
-      // 필터 조건 설정
-      if (year && month && month !== "") {
-        // 연도-월별 조회: 해당 월에 본 작품들의 누적 통계
-        const monthStr = (month as string).padStart(2, "0");
-        if (parseInt(monthStr, 10) < 1 || parseInt(monthStr, 10) > 12) {
-          res.status(400).json({
-            error: "월은 1-12 사이의 값이어야 합니다.",
-            code: "INVALID_MONTH",
-          });
-          return;
-        }
-        const dateFilter = getYearMonthFilter(year as string, monthStr);
-        where.date = dateFilter.date;
-      } else if (year) {
-        // 연도별 조회: 해당 연도에 본 작품들의 누적 통계
-        const dateFilter = getYearFilter(year as string);
-        where.date = dateFilter.date;
-      }
-      // 파라미터가 없으면 전체 누적 데이터 (where에 추가 조건 없음)
 
       const tickets = await prisma.ticket.findMany({
         where,
@@ -571,38 +427,21 @@ router.get(
           ticketPrice: true,
           posterUrl: true,
           genre: true,
-          castings: {
-            select: {
-              actorName: true,
-            },
-          },
+          castings: { select: { actorName: true } },
         },
-        orderBy: {
-          date: "desc",
-        },
+        orderBy: { date: "desc" },
       });
 
       if (tickets.length === 0) {
-        res.status(404).json({
-          error: "작품을 찾을 수 없습니다.",
-          code: "PERFORMANCE_NOT_FOUND",
-        });
+        res.status(404).json({ error: "작품을 찾을 수 없습니다.", code: "PERFORMANCE_NOT_FOUND" });
         return;
       }
 
-      // 통계 계산
       const ratings = tickets.filter((t) => t.rating > 0).map((t) => t.rating);
-      const dates = tickets
-        .map((t) => t.date)
-        .sort((a, b) => a.getTime() - b.getTime());
-      const totalTicketPrice = tickets.reduce(
-        (sum, t) => sum + t.ticketPrice,
-        0
-      );
+      const dates = tickets.map((t) => t.date).sort((a, b) => a.getTime() - b.getTime());
+      const totalTicketPrice = tickets.reduce((sum, t) => sum + t.ticketPrice, 0);
       const avgRating =
-        ratings.length > 0
-          ? ratings.reduce((sum, r) => sum + r, 0) / ratings.length
-          : 0;
+        ratings.length > 0 ? ratings.reduce((sum, r) => sum + r, 0) / ratings.length : 0;
 
       const performance = {
         name: decodeURIComponent(performanceName),
@@ -612,12 +451,7 @@ router.get(
         firstViewed: dates[0].toISOString().split("T")[0],
         lastViewed: dates[dates.length - 1].toISOString().split("T")[0],
         posterUrl: tickets[0].posterUrl,
-        genre:
-          tickets[0].genre === Genre.THEATER
-            ? "연극"
-            : tickets[0].genre === Genre.MUSICAL
-            ? "뮤지컬"
-            : null,
+        genre: formatGenre(tickets[0].genre),
       };
 
       const formattedTickets = tickets.map((ticket) => ({
@@ -630,10 +464,7 @@ router.get(
         casting: ticket.castings.map((c) => c.actorName),
       }));
 
-      res.json({
-        performance,
-        tickets: formattedTickets,
-      });
+      res.json({ performance, tickets: formattedTickets });
     } catch (error) {
       console.error("작품 상세 정보 오류:", error);
       res.status(500).json({
