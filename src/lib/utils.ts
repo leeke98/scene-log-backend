@@ -60,7 +60,7 @@ export const getYearMonthFilter = (year: string, month: string) => {
 export const buildDateFilter = (
   year?: string,
   month?: string
-): { date: { gte: Date; lte: Date } } | {} | null => {
+): { date?: { gte: Date; lte: Date } } | null => {
   if (year && month && month !== "") {
     const monthStr = (month as string).padStart(2, "0");
     if (parseInt(monthStr, 10) < 1 || parseInt(monthStr, 10) > 12) return null;

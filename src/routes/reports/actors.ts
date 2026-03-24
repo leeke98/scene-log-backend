@@ -117,53 +117,61 @@ router.get("/actors", async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const where: any = {
-      ticket: { userId, ...dateFilter },
-    };
+    // Step 1: DB에서 배우별 관람 횟수 집계 (전체 배우 목록)
+    const actorCounts = await prisma.ticketCasting.groupBy({
+      by: ["actorName"],
+      where: {
+        ticket: { userId, ...dateFilter },
+        ...(search ? { actorName: { contains: search as string } } : {}),
+      },
+      _count: { actorName: true },
+      orderBy: { _count: { actorName: "desc" } },
+    });
 
-    if (search) {
-      where.actorName = { contains: search as string };
+    const total = actorCounts.length;
+    const startIndex = (pageNum - 1) * limitNum;
+    const paginatedCounts = actorCounts.slice(startIndex, startIndex + limitNum);
+
+    if (paginatedCounts.length === 0) {
+      res.json({
+        data: [],
+        pagination: { total, page: pageNum, limit: limitNum, totalPages: Math.ceil(total / limitNum) },
+      });
+      return;
     }
 
+    // Step 2: 현재 페이지 배우들의 상세 정보만 조회
+    const actorNames = paginatedCounts.map((g) => g.actorName);
     const castings = await prisma.ticketCasting.findMany({
-      where,
+      where: {
+        actorName: { in: actorNames },
+        ticket: { userId, ...dateFilter },
+      },
       include: {
         ticket: { select: { ticketPrice: true, performanceName: true } },
       },
     });
 
-    // 배우별로 그룹화
-    const actorData: Record<
-      string,
-      { viewCount: number; totalTicketPrice: number; performances: Set<string> }
-    > = {};
-
+    const detailMap: Record<string, { totalTicketPrice: number; performances: Set<string> }> = {};
     castings.forEach((casting) => {
       const name = casting.actorName;
-      if (!actorData[name]) {
-        actorData[name] = { viewCount: 0, totalTicketPrice: 0, performances: new Set() };
+      if (!detailMap[name]) {
+        detailMap[name] = { totalTicketPrice: 0, performances: new Set() };
       }
-      actorData[name].viewCount++;
-      actorData[name].totalTicketPrice += casting.ticket.ticketPrice;
-      actorData[name].performances.add(casting.ticket.performanceName);
+      detailMap[name].totalTicketPrice += casting.ticket.ticketPrice;
+      detailMap[name].performances.add(casting.ticket.performanceName);
     });
 
-    const allResults = Object.entries(actorData)
-      .map(([actorName, data]) => ({
-        actorName,
-        viewCount: data.viewCount,
-        totalTicketPrice: data.totalTicketPrice,
-        uniquePerformances: data.performances.size,
-        performanceList: Array.from(data.performances),
-      }))
-      .sort((a, b) => b.viewCount - a.viewCount);
-
-    const total = allResults.length;
-    const startIndex = (pageNum - 1) * limitNum;
-    const paginatedResults = allResults.slice(startIndex, startIndex + limitNum);
+    const data = paginatedCounts.map((group) => ({
+      actorName: group.actorName,
+      viewCount: group._count.actorName,
+      totalTicketPrice: detailMap[group.actorName]?.totalTicketPrice ?? 0,
+      uniquePerformances: detailMap[group.actorName]?.performances.size ?? 0,
+      performanceList: Array.from(detailMap[group.actorName]?.performances ?? []),
+    }));
 
     res.json({
-      data: paginatedResults,
+      data,
       pagination: {
         total,
         page: pageNum,
@@ -277,13 +285,11 @@ router.get(
         return;
       }
 
-      const where: any = {
-        actorName: decodeURIComponent(actorName),
-        ticket: { userId, ...dateFilter },
-      };
-
       const castings = await prisma.ticketCasting.findMany({
-        where,
+        where: {
+          actorName: decodeURIComponent(actorName),
+          ticket: { userId, ...dateFilter },
+        },
         include: {
           ticket: {
             select: {

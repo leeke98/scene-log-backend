@@ -1,7 +1,6 @@
 import { Router, Request, Response } from "express";
 import { prisma } from "../../lib/prisma";
 import { authenticate } from "../../middleware/auth";
-import { Genre } from "@prisma/client";
 import {
   buildDateFilter,
   formatGenre,
@@ -124,62 +123,69 @@ router.get(
         return;
       }
 
-      const where: any = { userId, ...dateFilter };
+      const baseWhere = {
+        userId,
+        ...dateFilter,
+        ...(search ? { performanceName: { contains: search as string } } : {}),
+      };
 
-      if (search) {
-        where.performanceName = { contains: search as string };
+      // Step 1: DB에서 작품별 집계 (viewCount, totalTicketPrice)
+      const performanceGroups = await prisma.ticket.groupBy({
+        by: ["performanceName"],
+        where: baseWhere,
+        _count: { performanceName: true },
+        _sum: { ticketPrice: true },
+        orderBy: { _count: { performanceName: "desc" } },
+      });
+
+      const total = performanceGroups.length;
+      const startIndex = (pageNum - 1) * limitNum;
+      const paginatedGroups = performanceGroups.slice(startIndex, startIndex + limitNum);
+
+      if (paginatedGroups.length === 0) {
+        res.json({
+          data: [],
+          pagination: { total, page: pageNum, limit: limitNum, totalPages: Math.ceil(total / limitNum) },
+        });
+        return;
       }
 
+      // Step 2: 현재 페이지 작품들의 posterUrl, genre, rating만 조회
+      const performanceNames = paginatedGroups.map((g) => g.performanceName);
       const tickets = await prisma.ticket.findMany({
-        where,
-        select: { performanceName: true, ticketPrice: true, rating: true, posterUrl: true, genre: true },
+        where: { ...baseWhere, performanceName: { in: performanceNames } },
+        select: { performanceName: true, rating: true, posterUrl: true, genre: true },
       });
 
-      // 작품별로 그룹화
-      const performanceData: Record<
+      const detailMap: Record<
         string,
-        { viewCount: number; totalTicketPrice: number; ratings: number[]; posterUrl: string | null; genre: Genre | null }
+        { ratings: number[]; posterUrl: string | null; genre: Parameters<typeof formatGenre>[0] }
       > = {};
-
       tickets.forEach((ticket) => {
         const name = ticket.performanceName;
-        if (!performanceData[name]) {
-          performanceData[name] = {
-            viewCount: 0,
-            totalTicketPrice: 0,
-            ratings: [],
-            posterUrl: ticket.posterUrl,
-            genre: ticket.genre,
-          };
+        if (!detailMap[name]) {
+          detailMap[name] = { ratings: [], posterUrl: ticket.posterUrl, genre: ticket.genre };
         }
-        performanceData[name].viewCount++;
-        performanceData[name].totalTicketPrice += ticket.ticketPrice;
-        if (ticket.rating > 0) performanceData[name].ratings.push(ticket.rating);
+        if (ticket.rating > 0) detailMap[name].ratings.push(ticket.rating);
       });
 
-      const allResults = Object.entries(performanceData)
-        .map(([name, data]) => {
-          const avgRating =
-            data.ratings.length > 0
-              ? data.ratings.reduce((sum, r) => sum + r, 0) / data.ratings.length
-              : 0;
-          return {
-            name,
-            viewCount: data.viewCount,
-            totalTicketPrice: data.totalTicketPrice,
-            avgRating: Math.round(avgRating * 10) / 10,
-            posterUrl: data.posterUrl,
-            genre: formatGenre(data.genre),
-          };
-        })
-        .sort((a, b) => b.viewCount - a.viewCount);
-
-      const total = allResults.length;
-      const startIndex = (pageNum - 1) * limitNum;
-      const paginatedResults = allResults.slice(startIndex, startIndex + limitNum);
+      const data = paginatedGroups.map((group) => {
+        const detail = detailMap[group.performanceName];
+        const ratings = detail?.ratings ?? [];
+        const avgRating =
+          ratings.length > 0 ? ratings.reduce((sum, r) => sum + r, 0) / ratings.length : 0;
+        return {
+          name: group.performanceName,
+          viewCount: group._count.performanceName,
+          totalTicketPrice: group._sum.ticketPrice ?? 0,
+          avgRating: Math.round(avgRating * 10) / 10,
+          posterUrl: detail?.posterUrl ?? null,
+          genre: formatGenre(detail?.genre ?? null),
+        };
+      });
 
       res.json({
-        data: paginatedResults,
+        data,
         pagination: {
           total,
           page: pageNum,
@@ -254,7 +260,7 @@ router.get(
         return;
       }
 
-      const where: any = { userId, ...dateFilter };
+      const where = { userId, ...dateFilter };
 
       const performanceCounts = await prisma.ticket.groupBy({
         by: ["performanceName"],
@@ -280,13 +286,13 @@ router.get(
 
       const posterMap = new Map(posterTickets.map((t) => [t.performanceName, t.posterUrl]));
 
-      const result = performanceCounts.map((item) => ({
-        performanceName: item.performanceName,
-        posterUrl: posterMap.get(item.performanceName) ?? null,
-        count: item._count.performanceName,
-      }));
-
-      res.json(result);
+      res.json(
+        performanceCounts.map((item) => ({
+          performanceName: item.performanceName,
+          posterUrl: posterMap.get(item.performanceName) ?? null,
+          count: item._count.performanceName,
+        }))
+      );
     } catch (error) {
       console.error("가장 많이 본 작품 Top 10 조회 오류:", error);
       res.status(500).json({
@@ -409,14 +415,12 @@ router.get(
         return;
       }
 
-      const where: any = {
-        userId,
-        performanceName: decodeURIComponent(performanceName),
-        ...dateFilter,
-      };
-
       const tickets = await prisma.ticket.findMany({
-        where,
+        where: {
+          userId,
+          performanceName: decodeURIComponent(performanceName),
+          ...dateFilter,
+        },
         select: {
           id: true,
           date: true,
