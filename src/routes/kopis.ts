@@ -1,4 +1,4 @@
-import { Router, Request, Response } from "express";
+import { Router, Request, Response, NextFunction } from "express";
 import { XMLParser } from "fast-xml-parser";
 
 const router = Router();
@@ -9,6 +9,22 @@ const xmlParser = new XMLParser({
   attributeNamePrefix: "@_",
   textNodeName: "#text",
 });
+
+/**
+ * KOPIS 서비스 키 존재 여부 확인 미들웨어
+ */
+const requireServiceKey = (_req: Request, res: Response, next: NextFunction): void => {
+  if (!process.env.KOPIS_SERVICE_KEY) {
+    res.status(500).json({
+      error: "KOPIS 서비스 키가 설정되지 않았습니다.",
+      code: "KOPIS_SERVICE_KEY_MISSING",
+    });
+    return;
+  }
+  next();
+};
+
+router.use(requireServiceKey);
 
 /**
  * 날짜를 YYYYMMDD 형식으로 변환
@@ -54,15 +70,7 @@ function formatDate(date: Date): string {
 router.get("/boxoffice", async (req: Request, res: Response): Promise<void> => {
   try {
     const { genre } = req.query;
-    const serviceKey = process.env.KOPIS_SERVICE_KEY;
-
-    if (!serviceKey) {
-      res.status(500).json({
-        error: "KOPIS 서비스 키가 설정되지 않았습니다.",
-        code: "KOPIS_SERVICE_KEY_MISSING",
-      });
-      return;
-    }
+    const serviceKey = process.env.KOPIS_SERVICE_KEY!;
 
     if (!genre || (genre !== "연극" && genre !== "뮤지컬")) {
       res.status(400).json({
@@ -194,15 +202,7 @@ router.get(
   async (req: Request, res: Response): Promise<void> => {
     try {
       const { stdate, eddate, page, limit, search, genre, isChild } = req.query;
-      const serviceKey = process.env.KOPIS_SERVICE_KEY;
-
-      if (!serviceKey) {
-        res.status(500).json({
-          error: "KOPIS 서비스 키가 설정되지 않았습니다.",
-          code: "KOPIS_SERVICE_KEY_MISSING",
-        });
-        return;
-      }
+      const serviceKey = process.env.KOPIS_SERVICE_KEY!;
 
       // 페이징 파라미터
       const pageNum = parseInt((page as string) || "1", 10);
@@ -327,15 +327,7 @@ router.get(
   async (req: Request, res: Response): Promise<void> => {
     try {
       const { mt20id } = req.params;
-      const serviceKey = process.env.KOPIS_SERVICE_KEY;
-
-      if (!serviceKey) {
-        res.status(500).json({
-          error: "KOPIS 서비스 키가 설정되지 않았습니다.",
-          code: "KOPIS_SERVICE_KEY_MISSING",
-        });
-        return;
-      }
+      const serviceKey = process.env.KOPIS_SERVICE_KEY!;
 
       if (!mt20id) {
         res.status(400).json({
