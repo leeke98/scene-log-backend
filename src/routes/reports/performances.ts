@@ -509,6 +509,10 @@ router.get(
  *                         type: integer
  *                       posterUrl:
  *                         type: string
+ *                       casting:
+ *                         type: array
+ *                         items:
+ *                           type: string
  *       404:
  *         description: "작품을 찾을 수 없습니다"
  *         content:
@@ -567,6 +571,11 @@ router.get(
           ticketPrice: true,
           posterUrl: true,
           genre: true,
+          castings: {
+            select: {
+              actorName: true,
+            },
+          },
         },
         orderBy: {
           date: "desc",
@@ -618,6 +627,7 @@ router.get(
         seat: ticket.seat,
         rating: ticket.rating,
         review: ticket.review,
+        casting: ticket.castings.map((c) => c.actorName),
       }));
 
       res.json({
