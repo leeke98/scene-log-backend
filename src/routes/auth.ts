@@ -25,8 +25,25 @@ const generateRefreshToken = (userId: string): string => {
   } as jwt.SignOptions);
 };
 
+/**
+ * "7d", "30d", "24h", "60m" 형식의 문자열을 밀리초로 변환
+ */
+const parseExpiresInMs = (expiresIn: string): number => {
+  const match = expiresIn.match(/^(\d+)([smhd])$/);
+  if (!match) return 7 * 24 * 60 * 60 * 1000; // 파싱 실패 시 기본값 7일
+  const value = parseInt(match[1], 10);
+  const unit = match[2];
+  const multipliers: Record<string, number> = {
+    s: 1000,
+    m: 60 * 1000,
+    h: 60 * 60 * 1000,
+    d: 24 * 60 * 60 * 1000,
+  };
+  return value * multipliers[unit];
+};
+
 const setRefreshTokenCookie = (res: Response, refreshToken: string): void => {
-  const maxAge = 7 * 24 * 60 * 60 * 1000; // 7일
+  const maxAge = parseExpiresInMs(REFRESH_TOKEN_EXPIRES_IN);
   res.cookie("refresh_token", refreshToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
