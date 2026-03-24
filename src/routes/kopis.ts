@@ -106,6 +106,8 @@ router.get("/boxoffice", async (req: Request, res: Response): Promise<void> => {
     const performances = boxofArray.map((item: any) => {
       return {
         mt20id: item.mt20id || "",
+        prfnm: item.prfnm || "",
+        prfplcnm: item.prfplcnm || "",
         poster: item.poster || "",
         genrenm: item.cate || "",
       };
