@@ -1,4 +1,5 @@
 import { Router, Request, Response } from "express";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { authenticate } from "../middleware/auth";
 import { v4 as uuidv4 } from "uuid";
@@ -18,10 +19,14 @@ const router = Router();
 // 모든 티켓 라우트는 인증 필요
 router.use(authenticate);
 
+type TicketWithCastings = Prisma.TicketGetPayload<{
+  include: { castings: { select: { actorName: true } } };
+}>;
+
 /**
  * 티켓 데이터를 응답 형식으로 변환
  */
-const formatTicketResponse = (ticket: any) => {
+const formatTicketResponse = (ticket: TicketWithCastings) => {
   return {
     id: ticket.id,
     date: formatDate(ticket.date),
@@ -37,7 +42,7 @@ const formatTicketResponse = (ticket: any) => {
     rating: ticket.rating,
     review: ticket.review,
     posterUrl: ticket.posterUrl,
-    casting: ticket.castings?.map((c: any) => c.actorName) || [],
+    casting: ticket.castings.map((c) => c.actorName),
     createdAt: ticket.createdAt,
     updatedAt: ticket.updatedAt,
   };
@@ -129,12 +134,10 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
     }
     const { pageNum, limitNum } = pagination;
 
-    const where: any = { userId };
+    const where: Prisma.TicketWhereInput = { userId };
 
     if (year) {
-      const startDate = new Date(`${year}-01-01`);
-      const endDate = new Date(`${year}-12-31`);
-      where.date = { gte: startDate, lte: endDate };
+      where.date = { gte: new Date(`${year}-01-01`), lte: new Date(`${year}-12-31`) };
     }
 
     if (genre) {
@@ -417,7 +420,7 @@ router.put("/:id", async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const updateData: any = {};
+    const updateData: Prisma.TicketUpdateInput = {};
     const body = req.body;
 
     if (body.date !== undefined) updateData.date = parseDate(body.date);
