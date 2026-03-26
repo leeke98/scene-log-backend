@@ -9,6 +9,7 @@ import authRoutes from "./routes/auth";
 import ticketRoutes from "./routes/tickets";
 import reportRoutes from "./routes/reports/index";
 import kopisRoutes from "./routes/kopis";
+import proxyRoutes from "./routes/proxy";
 
 dotenv.config();
 
@@ -90,6 +91,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/tickets", ticketRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/kopis", kopisRoutes);
+app.use("/api/proxy", proxyRoutes);
 
 // Start server
 const server = app.listen(PORT, () => {
