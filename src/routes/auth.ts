@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { prisma } from "../lib/prisma";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import { OAuth2Client } from "google-auth-library";
 import { authenticate } from "../middleware/auth";
 
 const router = Router();
@@ -12,6 +13,8 @@ const REFRESH_TOKEN_SECRET: string =
   process.env.REFRESH_TOKEN_SECRET || "your-refresh-secret-key";
 const REFRESH_TOKEN_EXPIRES_IN: string =
   process.env.REFRESH_TOKEN_EXPIRES_IN || "7d";
+const GOOGLE_CLIENT_ID: string = process.env.GOOGLE_CLIENT_ID || "";
+const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
 const generateAccessToken = (userId: string, username: string): string => {
   return jwt.sign({ userId, username }, JWT_SECRET, {
@@ -225,7 +228,15 @@ router.post("/login", async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (user.provider !== "local") {
+      res.status(401).json({
+        error: "소셜 로그인으로 가입된 계정입니다. 해당 소셜 로그인을 이용해주세요.",
+        code: "SOCIAL_ACCOUNT",
+      });
+      return;
+    }
+
+    const isPasswordValid = await bcrypt.compare(password, user.password!);
     if (!isPasswordValid) {
       res.status(401).json({
         error: "사용자명 또는 비밀번호가 올바르지 않습니다.",
@@ -470,5 +481,152 @@ router.get(
     }
   }
 );
+
+/**
+ * @openapi
+ * /api/auth/google:
+ *   post:
+ *     summary: 구글 소셜 로그인
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - credential
+ *             properties:
+ *               credential:
+ *                 type: string
+ *                 description: Google ID Token (JWT)
+ *     responses:
+ *       200:
+ *         description: 구글 로그인 성공 (access_token 반환, refresh_token은 httpOnly 쿠키로 설정)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 access_token:
+ *                   type: string
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *       400:
+ *         description: credential 누락
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: 유효하지 않은 Google 인증
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post("/google", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { credential } = req.body;
+
+    if (!credential) {
+      res.status(400).json({
+        error: "Google credential이 필요합니다.",
+        code: "MISSING_CREDENTIAL",
+      });
+      return;
+    }
+
+    // Google ID Token 검증
+    let payload;
+    try {
+      const ticket = await googleClient.verifyIdToken({
+        idToken: credential,
+        audience: GOOGLE_CLIENT_ID,
+      });
+      payload = ticket.getPayload();
+    } catch {
+      res.status(401).json({
+        error: "유효하지 않은 Google 인증입니다.",
+        code: "INVALID_GOOGLE_TOKEN",
+      });
+      return;
+    }
+
+    if (!payload || !payload.email || !payload.sub) {
+      res.status(401).json({
+        error: "유효하지 않은 Google 인증입니다.",
+        code: "INVALID_GOOGLE_TOKEN",
+      });
+      return;
+    }
+
+    const { email, name, sub } = payload;
+
+    // 기존 Google 사용자 조회 (provider + providerId)
+    let user = await prisma.user.findFirst({
+      where: { provider: "google", providerId: sub },
+      select: { id: true, username: true, nickname: true },
+    });
+
+    if (!user) {
+      // 동일 email로 가입된 local 계정이 있는지 확인
+      const existingLocalUser = await prisma.user.findUnique({
+        where: { username: email },
+      });
+
+      if (existingLocalUser && existingLocalUser.provider === "local") {
+        res.status(409).json({
+          error: "이미 일반 회원가입으로 등록된 이메일입니다. 기존 계정으로 로그인해주세요.",
+          code: "EMAIL_EXISTS_LOCAL",
+        });
+        return;
+      }
+
+      // 새 사용자 생성
+      const username = existingLocalUser ? `google_${sub}` : email;
+      user = await prisma.user.create({
+        data: {
+          username,
+          password: null,
+          nickname: name || email.split("@")[0],
+          provider: "google",
+          providerId: sub,
+          email,
+        },
+        select: { id: true, username: true, nickname: true },
+      });
+    }
+
+    // JWT 발급
+    const accessToken = generateAccessToken(user.id, user.username);
+    const refreshToken = generateRefreshToken(user.id);
+
+    const decoded = jwt.decode(refreshToken) as jwt.JwtPayload;
+    await prisma.refreshToken.create({
+      data: {
+        token: refreshToken,
+        userId: user.id,
+        expiresAt: new Date(decoded.exp! * 1000),
+      },
+    });
+
+    setRefreshTokenCookie(res, refreshToken);
+
+    res.json({
+      message: "구글 로그인 성공",
+      access_token: accessToken,
+      user: { id: user.id, username: user.username, nickname: user.nickname },
+    });
+  } catch (error) {
+    console.error("구글 로그인 오류:", error);
+    res.status(500).json({
+      error: "구글 로그인 처리 중 오류가 발생했습니다.",
+      code: "GOOGLE_LOGIN_ERROR",
+    });
+  }
+});
 
 export default router;

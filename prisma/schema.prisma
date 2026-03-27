@@ -19,12 +19,15 @@ enum Genre {
 
 // 사용자 테이블
 model User {
-  id        String   @id @default(uuid()) // 사용자 고유 ID
-  username  String   @unique // 아이디 (로그인용)
-  password  String // 비밀번호 (해시)
-  nickname  String // 닉네임
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id         String   @id @default(uuid()) // 사용자 고유 ID
+  username   String   @unique // 아이디 (로그인용)
+  password   String? // 비밀번호 (해시), 소셜 로그인 사용자는 null
+  nickname   String // 닉네임
+  provider   String   @default("local") // 인증 제공자 (local, google)
+  providerId String?  @map("provider_id") // 소셜 로그인 고유 ID (Google sub 등)
+  email      String?  // 소셜 로그인 이메일
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
 
   // 관계
   tickets       Ticket[]
@@ -32,6 +35,7 @@ model User {
 
   // 인덱스
   @@index([username], name: "idx_username")
+  @@index([provider, providerId], name: "idx_provider")
   @@map("users")
 }
 
