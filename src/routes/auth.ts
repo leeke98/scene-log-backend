@@ -133,7 +133,7 @@ router.post("/signup", async (req: Request, res: Response): Promise<void> => {
     const hashedPassword = await bcrypt.hash(password, 10);
     const user = await prisma.user.create({
       data: { username, password: hashedPassword, nickname },
-      select: { id: true, username: true, nickname: true, createdAt: true },
+      select: { id: true, username: true, nickname: true, provider: true, createdAt: true },
     });
 
     const accessToken = generateAccessToken(user.id, user.username);
@@ -153,7 +153,7 @@ router.post("/signup", async (req: Request, res: Response): Promise<void> => {
     res.status(201).json({
       message: "회원가입이 완료되었습니다.",
       access_token: accessToken,
-      user: { id: user.id, username: user.username, nickname: user.nickname },
+      user: { id: user.id, username: user.username, nickname: user.nickname, provider: user.provider },
     });
   } catch (error) {
     console.error("회원가입 오류:", error);
@@ -262,7 +262,7 @@ router.post("/login", async (req: Request, res: Response): Promise<void> => {
     res.json({
       message: "로그인 성공",
       access_token: accessToken,
-      user: { id: user.id, username: user.username, nickname: user.nickname },
+      user: { id: user.id, username: user.username, nickname: user.nickname, provider: user.provider },
     });
   } catch (error) {
     console.error("로그인 오류:", error);
@@ -460,7 +460,7 @@ router.get(
 
       const user = await prisma.user.findUnique({
         where: { id: userId },
-        select: { id: true, username: true, nickname: true, createdAt: true },
+        select: { id: true, username: true, nickname: true, provider: true, createdAt: true },
       });
 
       if (!user) {
@@ -568,7 +568,7 @@ router.post("/google", async (req: Request, res: Response): Promise<void> => {
     // 기존 Google 사용자 조회 (provider + providerId)
     let user = await prisma.user.findFirst({
       where: { provider: "google", providerId: sub },
-      select: { id: true, username: true, nickname: true },
+      select: { id: true, username: true, nickname: true, provider: true },
     });
 
     if (!user) {
@@ -596,7 +596,7 @@ router.post("/google", async (req: Request, res: Response): Promise<void> => {
           providerId: sub,
           email,
         },
-        select: { id: true, username: true, nickname: true },
+        select: { id: true, username: true, nickname: true, provider: true },
       });
     }
 
@@ -618,7 +618,7 @@ router.post("/google", async (req: Request, res: Response): Promise<void> => {
     res.json({
       message: "구글 로그인 성공",
       access_token: accessToken,
-      user: { id: user.id, username: user.username, nickname: user.nickname },
+      user: { id: user.id, username: user.username, nickname: user.nickname, provider: user.provider },
     });
   } catch (error) {
     console.error("구글 로그인 오류:", error);
@@ -628,5 +628,176 @@ router.post("/google", async (req: Request, res: Response): Promise<void> => {
     });
   }
 });
+
+/**
+ * @openapi
+ * /api/auth/profile:
+ *   patch:
+ *     summary: 닉네임 변경
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - nickname
+ *             properties:
+ *               nickname:
+ *                 type: string
+ *                 description: 새 닉네임 (2~20자)
+ *     responses:
+ *       200:
+ *         description: 닉네임 변경 성공
+ *       400:
+ *         description: 유효성 검사 실패
+ *       401:
+ *         description: 인증 실패
+ */
+router.patch(
+  "/profile",
+  authenticate,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const userId = req.userId!;
+      const { nickname } = req.body;
+
+      if (!nickname || nickname.trim() === "") {
+        res.status(400).json({ error: "닉네임을 입력해주세요." });
+        return;
+      }
+
+      const trimmed = nickname.trim();
+
+      if (trimmed.length < 2 || trimmed.length > 20) {
+        res.status(400).json({ error: "닉네임은 2자 이상 20자 이하로 입력해주세요." });
+        return;
+      }
+
+      const currentUser = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, username: true, nickname: true, provider: true, createdAt: true },
+      });
+
+      if (!currentUser) {
+        res.status(404).json({ error: "사용자를 찾을 수 없습니다.", code: "USER_NOT_FOUND" });
+        return;
+      }
+
+      if (currentUser.nickname === trimmed) {
+        res.status(400).json({ error: "현재 닉네임과 동일합니다." });
+        return;
+      }
+
+      const updated = await prisma.user.update({
+        where: { id: userId },
+        data: { nickname: trimmed },
+        select: { id: true, username: true, nickname: true, provider: true, createdAt: true },
+      });
+
+      res.json({
+        message: "닉네임이 변경되었습니다.",
+        user: updated,
+      });
+    } catch (error) {
+      console.error("닉네임 변경 오류:", error);
+      res.status(500).json({ error: "닉네임 변경 중 오류가 발생했습니다." });
+    }
+  }
+);
+
+/**
+ * @openapi
+ * /api/auth/password:
+ *   patch:
+ *     summary: 비밀번호 변경 (일반 로그인 유저 전용)
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - currentPassword
+ *               - newPassword
+ *             properties:
+ *               currentPassword:
+ *                 type: string
+ *               newPassword:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: 비밀번호 변경 성공
+ *       400:
+ *         description: 유효성 검사 실패
+ *       401:
+ *         description: 현재 비밀번호 불일치
+ *       403:
+ *         description: 소셜 로그인 유저는 사용 불가
+ */
+router.patch(
+  "/password",
+  authenticate,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const userId = req.userId!;
+      const { currentPassword, newPassword } = req.body;
+
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, provider: true, password: true },
+      });
+
+      if (!user) {
+        res.status(404).json({ error: "사용자를 찾을 수 없습니다.", code: "USER_NOT_FOUND" });
+        return;
+      }
+
+      if (user.provider !== "local") {
+        res.status(403).json({ error: "소셜 로그인 사용자는 비밀번호를 변경할 수 없습니다." });
+        return;
+      }
+
+      if (!newPassword || newPassword.trim() === "") {
+        res.status(400).json({ error: "새 비밀번호를 입력해주세요." });
+        return;
+      }
+
+      if (newPassword.length < 8) {
+        res.status(400).json({ error: "비밀번호는 8자 이상이어야 합니다." });
+        return;
+      }
+
+      const isCurrentValid = await bcrypt.compare(currentPassword ?? "", user.password!);
+      if (!isCurrentValid) {
+        res.status(401).json({ error: "현재 비밀번호가 일치하지 않습니다." });
+        return;
+      }
+
+      const isSamePassword = await bcrypt.compare(newPassword, user.password!);
+      if (isSamePassword) {
+        res.status(400).json({ error: "현재 비밀번호와 동일한 비밀번호는 사용할 수 없습니다." });
+        return;
+      }
+
+      const hashed = await bcrypt.hash(newPassword, 10);
+      await prisma.user.update({
+        where: { id: userId },
+        data: { password: hashed },
+      });
+
+      res.json({ message: "비밀번호가 변경되었습니다." });
+    } catch (error) {
+      console.error("비밀번호 변경 오류:", error);
+      res.status(500).json({ error: "비밀번호 변경 중 오류가 발생했습니다." });
+    }
+  }
+);
 
 export default router;
