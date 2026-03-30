@@ -74,6 +74,11 @@ const formatTicketResponse = (ticket: TicketWithCastings) => {
  *           type: string
  *         description: 작품명 검색 (부분 일치)
  *       - in: query
+ *         name: actorName
+ *         schema:
+ *           type: string
+ *         description: 배우명 검색 (부분 일치, casting 배열 내 포함 여부)
+ *       - in: query
  *         name: page
  *         schema:
  *           type: integer
@@ -125,7 +130,7 @@ const formatTicketResponse = (ticket: TicketWithCastings) => {
 router.get("/", async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
-    const { year, genre, performanceName, page, limit } = req.query;
+    const { year, genre, performanceName, actorName, page, limit } = req.query;
 
     const pagination = parsePagination(page, limit, 50);
     if (isPaginationError(pagination)) {
@@ -147,6 +152,10 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
 
     if (performanceName) {
       where.performanceName = { contains: performanceName as string };
+    }
+
+    if (actorName) {
+      where.castings = { some: { actorName: { contains: actorName as string } } };
     }
 
     const [total, tickets] = await Promise.all([
