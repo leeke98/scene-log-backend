@@ -2,7 +2,8 @@ import { Router, Request, Response } from "express";
 import { prisma } from "../../lib/prisma";
 import { authenticate } from "../../middleware/auth";
 import {
-  buildDateFilter,
+  buildReportDateFilter,
+  buildGenreFilter,
   parsePagination,
   isPaginationError,
 } from "../../lib/utils";
@@ -17,7 +18,9 @@ router.use(authenticate);
  * /api/reports/actors:
  *   get:
  *     summary: 배우별 통계
- *     description: 연도별, 월별, 또는 전체 누적 데이터를 조회할 수 있습니다.
+ *     description: >
+ *       연도별, 월별, 임의 기간별, 또는 전체 누적 데이터를 조회할 수 있습니다.
+ *       startDate/endDate가 있으면 year/month는 무시됩니다.
  *     tags: [Reports]
  *     security:
  *       - bearerAuth: []
@@ -28,15 +31,33 @@ router.use(authenticate);
  *           type: string
  *         description: "배우명 검색"
  *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: "조회 시작일 (YYYY-MM-DD). 지정 시 year/month 무시"
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: "조회 종료일 (YYYY-MM-DD). 지정 시 year/month 무시"
+ *       - in: query
  *         name: year
  *         schema:
  *           type: string
- *         description: "연도 (예: 2024)"
+ *         description: "연도 (예: 2024). startDate/endDate가 없을 때 사용"
  *       - in: query
  *         name: month
  *         schema:
  *           type: string
  *         description: "월 (year와 함께 사용, 예: 01, 02, ..., 12)"
+ *       - in: query
+ *         name: genre
+ *         schema:
+ *           type: string
+ *           enum: [뮤지컬, 연극]
+ *         description: "장르 필터 (없으면 전체)"
  *       - in: query
  *         name: page
  *         schema:
@@ -102,7 +123,7 @@ router.use(authenticate);
 router.get("/actors", async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
-    const { search, year, month, page, limit } = req.query;
+    const { search, year, month, startDate, endDate, genre, page, limit } = req.query;
 
     const pagination = parsePagination(page, limit, 20);
     if (isPaginationError(pagination)) {
@@ -111,17 +132,34 @@ router.get("/actors", async (req: Request, res: Response): Promise<void> => {
     }
     const { pageNum, limitNum } = pagination;
 
-    const dateFilter = buildDateFilter(year as string, month as string);
+    const dateFilter = buildReportDateFilter({
+      year: year as string,
+      month: month as string,
+      startDate: startDate as string,
+      endDate: endDate as string,
+    });
     if (dateFilter === null) {
-      res.status(400).json({ error: "월은 1-12 사이의 값이어야 합니다.", code: "INVALID_MONTH" });
+      res.status(400).json(
+        startDate || endDate
+          ? { error: "날짜 형식이 올바르지 않습니다. YYYY-MM-DD 형식으로 입력해주세요.", code: "INVALID_DATE" }
+          : { error: "월은 1-12 사이의 값이어야 합니다.", code: "INVALID_MONTH" }
+      );
       return;
     }
+
+    const genreFilter = buildGenreFilter(genre as string);
+    if (genreFilter === null) {
+      res.status(400).json({ error: "장르는 '뮤지컬' 또는 '연극'이어야 합니다.", code: "INVALID_GENRE" });
+      return;
+    }
+
+    const ticketFilter = { userId, ...dateFilter, ...genreFilter };
 
     // Step 1: DB에서 배우별 관람 횟수 집계 (전체 배우 목록)
     const actorCounts = await prisma.ticketCasting.groupBy({
       by: ["actorName"],
       where: {
-        ticket: { userId, ...dateFilter },
+        ticket: ticketFilter,
         ...(search ? { actorName: { contains: search as string } } : {}),
       },
       _count: { actorName: true },
@@ -145,7 +183,7 @@ router.get("/actors", async (req: Request, res: Response): Promise<void> => {
     const castings = await prisma.ticketCasting.findMany({
       where: {
         actorName: { in: actorNames },
-        ticket: { userId, ...dateFilter },
+        ticket: ticketFilter,
       },
       include: {
         ticket: { select: { ticketPrice: true, performanceName: true } },
@@ -193,7 +231,9 @@ router.get("/actors", async (req: Request, res: Response): Promise<void> => {
  * /api/reports/actors/{actorName}:
  *   get:
  *     summary: 배우 상세 정보
- *     description: 연도별, 월별, 또는 전체 누적 데이터를 조회할 수 있습니다.
+ *     description: >
+ *       연도별, 월별, 임의 기간별, 또는 전체 누적 데이터를 조회할 수 있습니다.
+ *       startDate/endDate가 있으면 year/month는 무시됩니다.
  *     tags: [Reports]
  *     security:
  *       - bearerAuth: []
@@ -205,15 +245,33 @@ router.get("/actors", async (req: Request, res: Response): Promise<void> => {
  *           type: string
  *         description: "배우명 (URL 인코딩 필요)"
  *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: "조회 시작일 (YYYY-MM-DD). 지정 시 year/month 무시"
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: "조회 종료일 (YYYY-MM-DD). 지정 시 year/month 무시"
+ *       - in: query
  *         name: year
  *         schema:
  *           type: string
- *         description: "연도 (예: 2024)"
+ *         description: "연도 (예: 2024). startDate/endDate가 없을 때 사용"
  *       - in: query
  *         name: month
  *         schema:
  *           type: string
  *         description: "월 (year와 함께 사용, 예: 01, 02, ..., 12)"
+ *       - in: query
+ *         name: genre
+ *         schema:
+ *           type: string
+ *           enum: [뮤지컬, 연극]
+ *         description: "장르 필터 (없으면 전체)"
  *     responses:
  *       200:
  *         description: "배우 상세 정보 및 티켓 목록"
@@ -277,18 +335,33 @@ router.get(
     try {
       const userId = req.userId!;
       const { actorName } = req.params;
-      const { year, month } = req.query;
+      const { year, month, startDate, endDate, genre } = req.query;
 
-      const dateFilter = buildDateFilter(year as string, month as string);
+      const dateFilter = buildReportDateFilter({
+        year: year as string,
+        month: month as string,
+        startDate: startDate as string,
+        endDate: endDate as string,
+      });
       if (dateFilter === null) {
-        res.status(400).json({ error: "월은 1-12 사이의 값이어야 합니다.", code: "INVALID_MONTH" });
+        res.status(400).json(
+          startDate || endDate
+            ? { error: "날짜 형식이 올바르지 않습니다. YYYY-MM-DD 형식으로 입력해주세요.", code: "INVALID_DATE" }
+            : { error: "월은 1-12 사이의 값이어야 합니다.", code: "INVALID_MONTH" }
+        );
+        return;
+      }
+
+      const genreFilter = buildGenreFilter(genre as string);
+      if (genreFilter === null) {
+        res.status(400).json({ error: "장르는 '뮤지컬' 또는 '연극'이어야 합니다.", code: "INVALID_GENRE" });
         return;
       }
 
       const castings = await prisma.ticketCasting.findMany({
         where: {
           actorName: decodeURIComponent(actorName),
-          ticket: { userId, ...dateFilter },
+          ticket: { userId, ...dateFilter, ...genreFilter },
         },
         include: {
           ticket: {

@@ -1,58 +1,12 @@
 import { Router, Request, Response } from "express";
 import { prisma } from "../../lib/prisma";
 import { authenticate } from "../../middleware/auth";
+import { buildReportDateFilter, buildGenreFilter } from "../../lib/utils";
 
 const router = Router();
 
 // 모든 리포트 라우트는 인증 필요
 router.use(authenticate);
-
-/**
- * 연도 필터 조건 생성
- * @db.Date는 날짜만 저장하므로 시간 부분은 무시됨
- */
-const getYearFilter = (year?: string) => {
-  if (!year) return {};
-  const yearNum = parseInt(year, 10);
-  // UTC 자정으로 변환 (날짜만 비교)
-  const startDate = new Date(`${yearNum}-01-01T00:00:00.000Z`); // 1월 1일
-  const endDate = new Date(`${yearNum}-12-31T00:00:00.000Z`); // 12월 31일
-  return {
-    date: {
-      gte: startDate,
-      lte: endDate,
-    },
-  };
-};
-
-/**
- * 연도-월 필터 조건 생성
- * @db.Date는 날짜만 저장하므로 시간 부분은 무시됨
- */
-const getYearMonthFilter = (year: string, month: string) => {
-  const yearNum = parseInt(year, 10);
-  const monthNum = parseInt(month, 10);
-
-  // 해당 월의 첫 날 (UTC 자정)
-  const startDate = new Date(
-    `${yearNum}-${monthNum.toString().padStart(2, "0")}-01T00:00:00.000Z`
-  );
-
-  // 해당 월의 마지막 날 (UTC 자정)
-  const lastDay = new Date(yearNum, monthNum, 0).getDate();
-  const endDate = new Date(
-    `${yearNum}-${monthNum.toString().padStart(2, "0")}-${lastDay
-      .toString()
-      .padStart(2, "0")}T00:00:00.000Z`
-  );
-
-  return {
-    date: {
-      gte: startDate,
-      lte: endDate,
-    },
-  };
-};
 
 /**
  * ISO 주 번호 계산
@@ -107,21 +61,41 @@ function getWeekInMonth(date: Date): number {
  * /api/reports/summary:
  *   get:
  *     summary: 전체 통계 요약
- *     description: 연도별, 월별, 또는 전체 누적 데이터를 조회할 수 있습니다.
+ *     description: >
+ *       연도별, 월별, 임의 기간별, 또는 전체 누적 데이터를 조회할 수 있습니다.
+ *       startDate/endDate가 있으면 year/month는 무시됩니다.
  *     tags: [Reports]
  *     security:
  *       - bearerAuth: []
  *     parameters:
  *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: "조회 시작일 (YYYY-MM-DD). 지정 시 year/month 무시"
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: "조회 종료일 (YYYY-MM-DD). 지정 시 year/month 무시"
+ *       - in: query
  *         name: year
  *         schema:
  *           type: string
- *         description: "연도 (예: 2024)"
+ *         description: "연도 (예: 2024). startDate/endDate가 없을 때 사용"
  *       - in: query
  *         name: month
  *         schema:
  *           type: string
  *         description: "월 (year와 함께 사용, 예: 01, 02, ..., 12)"
+ *       - in: query
+ *         name: genre
+ *         schema:
+ *           type: string
+ *           enum: [뮤지컬, 연극]
+ *         description: "장르 필터 (없으면 전체)"
  *     responses:
  *       200:
  *         description: 통계 요약 데이터
@@ -158,42 +132,35 @@ function getWeekInMonth(date: Date): number {
 router.get("/summary", async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
-    const { year, month } = req.query;
+    const { year, month, startDate, endDate, genre } = req.query;
 
-    const where: any = {
-      userId,
-    };
-
-    // 필터 조건 설정 및 저장
-    let dateFilter: any = null;
-    if (year && month && month !== "") {
-      // 연도-월별 조회: 해당 월에 본 작품들의 누적 통계
-      const monthStr = (month as string).padStart(2, "0");
-      if (parseInt(monthStr, 10) < 1 || parseInt(monthStr, 10) > 12) {
-        res.status(400).json({
-          error: "월은 1-12 사이의 값이어야 합니다.",
-          code: "INVALID_MONTH",
-        });
-        return;
-      }
-      dateFilter = getYearMonthFilter(year as string, monthStr);
-      where.date = dateFilter.date;
-    } else if (year) {
-      // 연도별 조회: 해당 연도에 본 작품들의 누적 통계
-      dateFilter = getYearFilter(year as string);
-      where.date = dateFilter.date;
+    const dateFilter = buildReportDateFilter({
+      year: year as string,
+      month: month as string,
+      startDate: startDate as string,
+      endDate: endDate as string,
+    });
+    if (dateFilter === null) {
+      res.status(400).json(
+        startDate || endDate
+          ? { error: "날짜 형식이 올바르지 않습니다. YYYY-MM-DD 형식으로 입력해주세요.", code: "INVALID_DATE" }
+          : { error: "월은 1-12 사이의 값이어야 합니다.", code: "INVALID_MONTH" }
+      );
+      return;
     }
-    // 파라미터가 없으면 전체 누적 데이터 (where에 추가 조건 없음)
+
+    const genreFilter = buildGenreFilter(genre as string);
+    if (genreFilter === null) {
+      res.status(400).json({ error: "장르는 '뮤지컬' 또는 '연극'이어야 합니다.", code: "INVALID_GENRE" });
+      return;
+    }
+
+    const where: any = { userId, ...dateFilter, ...genreFilter };
 
     // 가장 많이 본 배우 필터 조건
     const actorWhere: any = {
-      ticket: {
-        userId,
-      },
+      ticket: { userId, ...dateFilter, ...genreFilter },
     };
-    if (dateFilter) {
-      actorWhere.ticket.date = dateFilter.date;
-    }
 
     // 모든 쿼리를 병렬로 실행하여 성능 최적화
     const [
@@ -313,15 +280,36 @@ router.get("/summary", async (req: Request, res: Response): Promise<void> => {
  * /api/reports/monthly:
  *   get:
  *     summary: 월별 통계
+ *     description: >
+ *       연도별, 임의 기간별, 또는 전체 누적 데이터를 조회할 수 있습니다.
+ *       startDate/endDate가 있으면 year는 무시됩니다.
  *     tags: [Reports]
  *     security:
  *       - bearerAuth: []
  *     parameters:
  *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: "조회 시작일 (YYYY-MM-DD). 지정 시 year 무시"
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: "조회 종료일 (YYYY-MM-DD). 지정 시 year 무시"
+ *       - in: query
  *         name: year
  *         schema:
  *           type: string
- *         description: "연도 (예: 2024)"
+ *         description: "연도 (예: 2024). startDate/endDate가 없을 때 사용"
+ *       - in: query
+ *         name: genre
+ *         schema:
+ *           type: string
+ *           enum: [뮤지컬, 연극]
+ *         description: "장르 필터 (없으면 전체)"
  *     responses:
  *       200:
  *         description: "월별 통계 데이터"
@@ -349,12 +337,25 @@ router.get("/summary", async (req: Request, res: Response): Promise<void> => {
 router.get("/monthly", async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
-    const { year } = req.query;
+    const { year, startDate, endDate, genre } = req.query;
 
-    const where: any = {
-      userId,
-      ...getYearFilter(year as string),
-    };
+    const dateFilter = buildReportDateFilter({
+      year: year as string,
+      startDate: startDate as string,
+      endDate: endDate as string,
+    });
+    if (dateFilter === null) {
+      res.status(400).json({ error: "날짜 형식이 올바르지 않습니다. YYYY-MM-DD 형식으로 입력해주세요.", code: "INVALID_DATE" });
+      return;
+    }
+
+    const genreFilter = buildGenreFilter(genre as string);
+    if (genreFilter === null) {
+      res.status(400).json({ error: "장르는 '뮤지컬' 또는 '연극'이어야 합니다.", code: "INVALID_GENRE" });
+      return;
+    }
+
+    const where: any = { userId, ...dateFilter, ...genreFilter };
 
     const tickets = await prisma.ticket.findMany({
       where,
@@ -400,15 +401,36 @@ router.get("/monthly", async (req: Request, res: Response): Promise<void> => {
  * /api/reports/weekly:
  *   get:
  *     summary: 주별 통계
+ *     description: >
+ *       주별 통계를 조회합니다. startDate/endDate가 있으면 yearMonth는 무시됩니다.
+ *       startDate/endDate 사용 시 ISO 주 번호('YYYY-N') 형식으로 반환됩니다.
  *     tags: [Reports]
  *     security:
  *       - bearerAuth: []
  *     parameters:
  *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: "조회 시작일 (YYYY-MM-DD). 지정 시 yearMonth 무시"
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: "조회 종료일 (YYYY-MM-DD). 지정 시 yearMonth 무시"
+ *       - in: query
  *         name: yearMonth
  *         schema:
  *           type: string
- *         description: "연도-월 (YYYY-MM 형식, 예: 2024-01)"
+ *         description: "연도-월 (YYYY-MM 형식, 예: 2024-01). startDate/endDate가 없을 때 사용"
+ *       - in: query
+ *         name: genre
+ *         schema:
+ *           type: string
+ *           enum: [뮤지컬, 연극]
+ *         description: "장르 필터 (없으면 전체)"
  *     responses:
  *       200:
  *         description: "주별 통계 데이터"
@@ -421,12 +443,18 @@ router.get("/monthly", async (req: Request, res: Response): Promise<void> => {
  *                 properties:
  *                   yearWeek:
  *                     type: string
- *                     description: "yearMonth 파라미터가 있으면 'YYYY-MM-N' 형식 (예: 2024-02-1), 없으면 'YYYY-N' 형식 (예: 2024-7)"
+ *                     description: "yearMonth 사용 시 'YYYY-MM-N' (예: 2024-02-1), 그 외 'YYYY-N' ISO 주 형식 (예: 2024-7)"
  *                     example: "2024-02-1"
  *                   count:
  *                     type: integer
  *                   totalPrice:
  *                     type: integer
+ *       400:
+ *         description: "잘못된 요청"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  *       401:
  *         description: "인증 실패"
  *         content:
@@ -437,26 +465,42 @@ router.get("/monthly", async (req: Request, res: Response): Promise<void> => {
 router.get("/weekly", async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
-    const { yearMonth } = req.query;
+    const { yearMonth, startDate, endDate, genre } = req.query;
 
-    const where: any = {
-      userId,
-    };
+    const where: any = { userId };
 
     let isMonthFilter = false;
     let monthYear: string | null = null;
     let monthMonth: string | null = null;
 
-    if (yearMonth) {
+    const genreFilter = buildGenreFilter(genre as string);
+    if (genreFilter === null) {
+      res.status(400).json({ error: "장르는 '뮤지컬' 또는 '연극'이어야 합니다.", code: "INVALID_GENRE" });
+      return;
+    }
+    Object.assign(where, genreFilter);
+
+    if (startDate || endDate) {
+      // startDate/endDate 우선 (yearMonth 무시)
+      const gte = startDate ? new Date((startDate as string) + "T00:00:00.000Z") : undefined;
+      const lte = endDate ? new Date((endDate as string) + "T00:00:00.000Z") : undefined;
+      if ((gte && isNaN(gte.getTime())) || (lte && isNaN(lte.getTime()))) {
+        res.status(400).json({ error: "날짜 형식이 올바르지 않습니다. YYYY-MM-DD 형식으로 입력해주세요.", code: "INVALID_DATE" });
+        return;
+      }
+      const dateRange: any = {};
+      if (gte) dateRange.gte = gte;
+      if (lte) dateRange.lte = lte;
+      if (Object.keys(dateRange).length > 0) where.date = dateRange;
+      // isMonthFilter remains false → ISO 주 번호 형식 사용
+    } else if (yearMonth) {
       isMonthFilter = true;
       const [year, month] = (yearMonth as string).split("-");
       monthYear = year;
       monthMonth = month;
-      const startDate = new Date(`${year}-${month}-01`);
-      const endDate = new Date(`${year}-${month}-31`);
       where.date = {
-        gte: startDate,
-        lte: endDate,
+        gte: new Date(`${year}-${month}-01`),
+        lte: new Date(`${year}-${month}-31`),
       };
     }
 
@@ -517,21 +561,41 @@ router.get("/weekly", async (req: Request, res: Response): Promise<void> => {
  * /api/reports/day-of-week:
  *   get:
  *     summary: 요일별 통계
- *     description: "연도별, 월별, 또는 전체 누적 데이터를 조회할 수 있습니다."
+ *     description: >
+ *       연도별, 월별, 임의 기간별, 또는 전체 누적 데이터를 조회할 수 있습니다.
+ *       startDate/endDate가 있으면 year/month는 무시됩니다.
  *     tags: [Reports]
  *     security:
  *       - bearerAuth: []
  *     parameters:
  *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: "조회 시작일 (YYYY-MM-DD). 지정 시 year/month 무시"
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: "조회 종료일 (YYYY-MM-DD). 지정 시 year/month 무시"
+ *       - in: query
  *         name: year
  *         schema:
  *           type: string
- *         description: "연도 (예: 2024)"
+ *         description: "연도 (예: 2024). startDate/endDate가 없을 때 사용"
  *       - in: query
  *         name: month
  *         schema:
  *           type: string
  *         description: "월 (year와 함께 사용, 예: 01, 02, ..., 12)"
+ *       - in: query
+ *         name: genre
+ *         schema:
+ *           type: string
+ *           enum: [뮤지컬, 연극]
+ *         description: "장르 필터 (없으면 전체)"
  *     responses:
  *       200:
  *         description: "요일별 통계 데이터"
@@ -565,31 +629,30 @@ router.get(
   async (req: Request, res: Response): Promise<void> => {
     try {
       const userId = req.userId!;
-      const { year, month } = req.query;
+      const { year, month, startDate, endDate, genre } = req.query;
 
-      const where: any = {
-        userId,
-      };
-
-      // 필터 조건 설정
-      if (year && month && month !== "") {
-        // 연도-월별 조회: 해당 월에 본 작품들의 누적 통계
-        const monthStr = (month as string).padStart(2, "0");
-        if (parseInt(monthStr, 10) < 1 || parseInt(monthStr, 10) > 12) {
-          res.status(400).json({
-            error: "월은 1-12 사이의 값이어야 합니다.",
-            code: "INVALID_MONTH",
-          });
-          return;
-        }
-        const dateFilter = getYearMonthFilter(year as string, monthStr);
-        where.date = dateFilter.date;
-      } else if (year) {
-        // 연도별 조회: 해당 연도에 본 작품들의 누적 통계
-        const dateFilter = getYearFilter(year as string);
-        where.date = dateFilter.date;
+      const dateFilter = buildReportDateFilter({
+        year: year as string,
+        month: month as string,
+        startDate: startDate as string,
+        endDate: endDate as string,
+      });
+      if (dateFilter === null) {
+        res.status(400).json(
+          startDate || endDate
+            ? { error: "날짜 형식이 올바르지 않습니다. YYYY-MM-DD 형식으로 입력해주세요.", code: "INVALID_DATE" }
+            : { error: "월은 1-12 사이의 값이어야 합니다.", code: "INVALID_MONTH" }
+        );
+        return;
       }
-      // 파라미터가 없으면 전체 누적 데이터 (where에 추가 조건 없음)
+
+      const genreFilter = buildGenreFilter(genre as string);
+      if (genreFilter === null) {
+        res.status(400).json({ error: "장르는 '뮤지컬' 또는 '연극'이어야 합니다.", code: "INVALID_GENRE" });
+        return;
+      }
+
+      const where: any = { userId, ...dateFilter, ...genreFilter };
 
       const tickets = await prisma.ticket.findMany({
         where,

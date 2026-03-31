@@ -70,7 +70,41 @@ export const buildDateFilter = (
   return {};
 };
 
+/**
+ * startDate/endDate(우선) 또는 year/month 로부터 Prisma date 필터 생성.
+ * - startDate/endDate가 있으면 year/month는 무시
+ * - 날짜 형식이 올바르지 않거나 월이 유효하지 않으면 null 반환
+ */
+export const buildReportDateFilter = (params: {
+  year?: string;
+  month?: string;
+  startDate?: string;
+  endDate?: string;
+}): { date?: { gte?: Date; lte?: Date } } | null => {
+  const { year, month, startDate, endDate } = params;
+  if (startDate || endDate) {
+    const gte = startDate ? new Date(startDate + "T00:00:00.000Z") : undefined;
+    const lte = endDate ? new Date(endDate + "T00:00:00.000Z") : undefined;
+    if ((gte && isNaN(gte.getTime())) || (lte && isNaN(lte.getTime()))) return null;
+    const dateRange: { gte?: Date; lte?: Date } = {};
+    if (gte) dateRange.gte = gte;
+    if (lte) dateRange.lte = lte;
+    return Object.keys(dateRange).length > 0 ? { date: dateRange } : {};
+  }
+  return buildDateFilter(year, month);
+};
+
 // ─── 장르 변환 ─────────────────────────────────────────────────────────────────
+
+/** 한글 장르 문자열 → Prisma genre 필터. 유효하지 않은 장르면 null 반환 */
+export const buildGenreFilter = (
+  genre?: string
+): { genre: Genre } | Record<string, never> | null => {
+  if (!genre || genre === "") return {};
+  const parsed = parseGenre(genre);
+  if (parsed === null) return null;
+  return { genre: parsed };
+};
 
 /** 한글 장르 문자열 → Genre enum */
 export const parseGenre = (genre?: string): Genre | null => {
