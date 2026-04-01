@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { authenticate } from "../middleware/auth";
+import { deleteCloudinaryImage } from "../lib/cloudinary";
 import { v4 as uuidv4 } from "uuid";
 import {
   parseDate,
@@ -444,7 +445,12 @@ router.put("/:id", async (req: Request, res: Response): Promise<void> => {
     if (body.mdPrice !== undefined) updateData.mdPrice = body.mdPrice;
     if (body.rating !== undefined) updateData.rating = body.rating;
     if (body.review !== undefined) updateData.review = body.review;
-    if (body.posterUrl !== undefined) updateData.posterUrl = body.posterUrl;
+    if (body.posterUrl !== undefined) {
+      if (existingTicket.posterUrl && existingTicket.posterUrl !== body.posterUrl) {
+        await deleteCloudinaryImage(existingTicket.posterUrl);
+      }
+      updateData.posterUrl = body.posterUrl;
+    }
 
     await prisma.ticket.update({ where: { id }, data: updateData });
 
@@ -515,6 +521,10 @@ router.delete("/:id", async (req: Request, res: Response): Promise<void> => {
     if (!ticket) {
       res.status(404).json({ error: "티켓을 찾을 수 없습니다.", code: "TICKET_NOT_FOUND" });
       return;
+    }
+
+    if (ticket.posterUrl) {
+      await deleteCloudinaryImage(ticket.posterUrl);
     }
 
     await prisma.ticket.delete({ where: { id } });
