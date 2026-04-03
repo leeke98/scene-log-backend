@@ -1,4 +1,4 @@
-import { Genre } from "@prisma/client";
+import { Genre, ActorDomain } from "@prisma/client";
 
 // ─── 날짜 / 시간 변환 ──────────────────────────────────────────────────────────
 
@@ -118,6 +118,32 @@ export const formatGenre = (genre: Genre | null): string | null => {
   if (genre === Genre.THEATER) return "연극";
   if (genre === Genre.MUSICAL) return "뮤지컬";
   return null;
+};
+
+// ─── 배우 도메인 변환 ──────────────────────────────────────────────────────────
+
+/** 한글 도메인 문자열 → ActorDomain enum. 없거나 빈 문자열이면 null 반환 */
+export const parseActorDomain = (domain?: string): ActorDomain | null => {
+  if (!domain) return null;
+  const map: Record<string, ActorDomain> = {
+    뮤지컬: ActorDomain.MUSICAL,
+    연극: ActorDomain.THEATER,
+    클래식: ActorDomain.CLASSIC,
+    기타: ActorDomain.OTHER,
+  };
+  return map[domain] ?? null;
+};
+
+/** ActorDomain enum → 한글 문자열 */
+export const formatActorDomain = (domain: ActorDomain | null | undefined): string | null => {
+  if (!domain) return null;
+  const map: Record<ActorDomain, string> = {
+    [ActorDomain.MUSICAL]: "뮤지컬",
+    [ActorDomain.THEATER]: "연극",
+    [ActorDomain.CLASSIC]: "클래식",
+    [ActorDomain.OTHER]: "기타",
+  };
+  return map[domain] ?? null;
 };
 
 // ─── 페이징 ────────────────────────────────────────────────────────────────────
