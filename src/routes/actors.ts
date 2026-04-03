@@ -43,6 +43,34 @@ const formatActorBasic = (actor: {
  *     responses:
  *       200:
  *         description: 배우 목록
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                       name:
+ *                         type: string
+ *                       birthYear:
+ *                         type: integer
+ *                         nullable: true
+ *                       domain:
+ *                         type: string
+ *                         nullable: true
+ *                       status:
+ *                         type: string
+ *                         enum: [unverified, verified]
+ *                       performances:
+ *                         type: array
+ *                         items:
+ *                           type: string
+ *                         description: "해당 배우의 출연 공연명 (최대 5개, 요청 유저 기준)"
  */
 router.get("/actors/search", authenticate, async (req: Request, res: Response): Promise<void> => {
   try {
@@ -125,8 +153,48 @@ router.get("/actors/search", authenticate, async (req: Request, res: Response): 
  *     responses:
  *       201:
  *         description: 배우 등록 성공
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id:
+ *                   type: string
+ *                 name:
+ *                   type: string
+ *                 birthYear:
+ *                   type: integer
+ *                   nullable: true
+ *                 domain:
+ *                   type: string
+ *                   nullable: true
+ *                 status:
+ *                   type: string
+ *                   example: unverified
  *       409:
  *         description: 동일 유저 + 동일 이름 중복
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: 이미 등록된 배우입니다.
+ *                 existingActor:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                     name:
+ *                       type: string
+ *                     domain:
+ *                       type: string
+ *                       nullable: true
+ *                     performances:
+ *                       type: array
+ *                       items:
+ *                         type: string
  */
 router.post("/actors", authenticate, async (req: Request, res: Response): Promise<void> => {
   try {
@@ -199,11 +267,44 @@ router.post("/actors", authenticate, async (req: Request, res: Response): Promis
  *         required: true
  *         schema:
  *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               birthYear:
+ *                 type: integer
+ *                 example: 1991
+ *               domain:
+ *                 type: string
+ *                 enum: [뮤지컬, 연극, 클래식, 기타]
  *     responses:
  *       200:
  *         description: 수정 성공
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id:
+ *                   type: string
+ *                 name:
+ *                   type: string
+ *                 birthYear:
+ *                   type: integer
+ *                   nullable: true
+ *                 domain:
+ *                   type: string
+ *                   nullable: true
+ *                 status:
+ *                   type: string
+ *                   enum: [unverified, verified, merged]
  *       403:
- *         description: 수정 권한 없음
+ *         description: 수정 권한 없음 (본인 아님 또는 unverified가 아님)
  *       404:
  *         description: 배우를 찾을 수 없음
  */
@@ -268,11 +369,21 @@ const VALID_REASONS = ["이름이 잘못됨", "이미지가 다른 사람임", "
  *             properties:
  *               reason:
  *                 type: string
+ *                 enum: [이름이 잘못됨, 이미지가 다른 사람임, 중복 배우 존재함, 기타]
  *               duplicateActorId:
  *                 type: string
+ *                 description: "reason이 '중복 배우 존재함'일 때만 사용"
  *     responses:
  *       201:
  *         description: 신고 접수
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: 신고가 접수되었습니다.
  *       404:
  *         description: 배우를 찾을 수 없음
  */
@@ -331,6 +442,21 @@ router.post("/actors/:id/report", authenticate, async (req: Request, res: Respon
  *     responses:
  *       200:
  *         description: 검증 완료
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: 검증 완료
+ *                 id:
+ *                   type: string
+ *                 status:
+ *                   type: string
+ *                   example: verified
+ *       400:
+ *         description: unverified 상태가 아닌 배우
  *       404:
  *         description: 배우를 찾을 수 없음
  */
@@ -383,6 +509,24 @@ router.put("/admin/actors/:id/verify", authenticateAdmin, async (req: Request, r
  *     responses:
  *       200:
  *         description: merge 완료
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: merge 완료
+ *                 canonical:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                     name:
+ *                       type: string
+ *                 mergedCount:
+ *                   type: integer
+ *                   description: 옮긴 ticket_actors row 수
  *       400:
  *         description: source = target이거나 잘못된 요청
  *       404:
