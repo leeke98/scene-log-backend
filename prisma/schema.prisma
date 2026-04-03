@@ -13,27 +13,43 @@ datasource db {
 
 // 장르 Enum
 enum Genre {
-  THEATER  // 연극
-  MUSICAL  // 뮤지컬
+  THEATER // 연극
+  MUSICAL // 뮤지컬
+}
+
+// 배우 상태 Enum
+enum ActorStatus {
+  unverified
+  verified
+  merged
+}
+
+// 배우 도메인 Enum
+enum ActorDomain {
+  MUSICAL // 뮤지컬
+  THEATER // 연극
+  CLASSIC // 클래식
+  OTHER   // 기타
 }
 
 // 사용자 테이블
 model User {
-  id         String   @id @default(uuid()) // 사용자 고유 ID
-  username   String   @unique // 아이디 (로그인용)
-  password   String? // 비밀번호 (해시), 소셜 로그인 사용자는 null
-  nickname   String // 닉네임
-  provider   String   @default("local") // 인증 제공자 (local, google)
-  providerId String?  @map("provider_id") // 소셜 로그인 고유 ID (Google sub 등)
-  email      String?  // 소셜 로그인 이메일
+  id         String   @id @default(uuid())
+  username   String   @unique
+  password   String?
+  nickname   String
+  provider   String   @default("local")
+  providerId String?  @map("provider_id")
+  email      String?
+  isAdmin    Boolean  @default(false) @map("is_admin")
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
-  // 관계
   tickets       Ticket[]
   refreshTokens RefreshToken[]
+  createdActors Actor[]
+  actorReports  ActorReport[]
 
-  // 인덱스
   @@index([username], name: "idx_username")
   @@index([provider, providerId], name: "idx_provider")
   @@map("users")
@@ -47,39 +63,35 @@ model RefreshToken {
   expiresAt DateTime @map("expires_at")
   createdAt DateTime @default(now()) @map("created_at")
 
-  // 관계
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  // 인덱스
   @@index([userId], name: "idx_refresh_token_user_id")
   @@map("refresh_tokens")
 }
 
 // 티켓 테이블
 model Ticket {
-  id              String   @id // 티켓 고유 ID
-  userId          String   @map("user_id") // 사용자 ID
-  date            DateTime @db.Date // 공연 날짜 (YYYY-MM-DD)
-  time            DateTime @db.Time // 공연 시간 (HH:MM:SS)
-  performanceName String   @map("performance_name") // 정규화된 작품명
-  genre           Genre? // 장르
-  isChild         Boolean  @default(false) @map("is_child") // 어린이 공연 여부
-  theater         String // 정규화된 극장명
-  seat            String? // 좌석 정보
-  ticketPrice     Int      @default(0) @map("ticket_price") // 티켓 가격
-  companion       String? // 동행자
-  mdPrice         Int      @default(0) @map("md_price") // MD 가격
-  rating          Int      @default(0) // 별점 (0-5)
-  review          String?  @db.Text // 공연 후기
-  posterUrl       String?  @map("poster_url") // 포스터 URL
+  id              String   @id
+  userId          String   @map("user_id")
+  date            DateTime @db.Date
+  time            DateTime @db.Time
+  performanceName String   @map("performance_name")
+  genre           Genre?
+  isChild         Boolean  @default(false) @map("is_child")
+  theater         String
+  seat            String?
+  ticketPrice     Int      @default(0) @map("ticket_price")
+  companion       String?
+  mdPrice         Int      @default(0) @map("md_price")
+  rating          Int      @default(0)
+  review          String?  @db.Text
+  posterUrl       String?  @map("poster_url")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
-  // 관계
-  user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  castings TicketCasting[]
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ticketActors TicketActor[]
 
-  // 인덱스
   @@index([userId], name: "idx_user_id")
   @@index([date], name: "idx_date")
   @@index([performanceName], name: "idx_performance_name")
@@ -89,19 +101,52 @@ model Ticket {
   @@map("tickets")
 }
 
-// 배우 캐스팅 테이블
-model TicketCasting {
-  id        BigInt   @id @default(autoincrement())
-  ticketId  String   @map("ticket_id") // 티켓 ID
-  actorName String   @map("actor_name") // 배우 이름
-  createdAt DateTime @default(now()) @map("created_at")
+// 배우 테이블
+model Actor {
+  id          String      @id @default(uuid())
+  name        String
+  birthYear   Int?        @map("birth_year")
+  domain      ActorDomain?
+  status      ActorStatus @default(unverified)
+  canonicalId String?     @map("canonical_id")
+  createdBy   String      @map("created_by")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
 
-  // 관계
-  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  canonical     Actor?        @relation("ActorMerge", fields: [canonicalId], references: [id])
+  mergedActors  Actor[]       @relation("ActorMerge")
+  createdByUser User          @relation(fields: [createdBy], references: [id])
+  ticketActors  TicketActor[]
+  reports       ActorReport[]
 
-  // 인덱스
-  @@index([ticketId], name: "idx_ticket_id")
-  @@index([actorName], name: "idx_actor_name")
-  @@map("ticket_castings")
+  @@index([name], name: "idx_actors_name")
+  @@index([status], name: "idx_actors_status")
+  @@map("actors")
 }
 
+// 티켓-배우 연결 테이블
+model TicketActor {
+  ticketId String @map("ticket_id")
+  actorId  String @map("actor_id")
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  actor  Actor  @relation(fields: [actorId], references: [id])
+
+  @@id([ticketId, actorId])
+  @@map("ticket_actors")
+}
+
+// 배우 신고 테이블
+model ActorReport {
+  id               String   @id @default(uuid())
+  actorId          String   @map("actor_id")
+  reportedBy       String   @map("reported_by")
+  reason           String
+  duplicateActorId String?  @map("duplicate_actor_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  actor    Actor @relation(fields: [actorId], references: [id])
+  reporter User  @relation(fields: [reportedBy], references: [id])
+
+  @@map("actor_reports")
+}
