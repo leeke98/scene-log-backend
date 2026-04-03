@@ -189,15 +189,15 @@ router.get("/summary", async (req: Request, res: Response): Promise<void> => {
         by: ["performanceName"],
         where,
       }),
-      prisma.ticketCasting.groupBy({
-        by: ["actorName"],
+      prisma.ticketActor.groupBy({
+        by: ["actorId"],
         where: actorWhere,
         _count: {
-          actorName: true,
+          actorId: true,
         },
         orderBy: {
           _count: {
-            actorName: "desc",
+            actorId: "desc",
           },
         },
         take: 1,
@@ -233,13 +233,17 @@ router.get("/summary", async (req: Request, res: Response): Promise<void> => {
     const totalTicketPrice = totalTicketPriceResult._sum.ticketPrice || 0;
     const totalMdPrice = totalMdPriceResult._sum.mdPrice || 0;
 
-    const mostViewedActor =
-      actorCounts.length > 0
-        ? {
-            name: actorCounts[0].actorName,
-            count: actorCounts[0]._count.actorName,
-          }
-        : null;
+    let mostViewedActor: { name: string; count: number } | null = null;
+    if (actorCounts.length > 0) {
+      const topActor = await prisma.actor.findUnique({
+        where: { id: actorCounts[0].actorId },
+        select: { name: true },
+      });
+      mostViewedActor = {
+        name: topActor?.name ?? "",
+        count: actorCounts[0]._count.actorId,
+      };
+    }
 
     const mostViewedPerformance =
       performanceCounts.length > 0

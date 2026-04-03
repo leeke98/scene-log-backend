@@ -1,12 +1,7 @@
 import { Router, Request, Response } from "express";
 import { prisma } from "../../lib/prisma";
 import { authenticate } from "../../middleware/auth";
-import {
-  buildReportDateFilter,
-  buildGenreFilter,
-  parsePagination,
-  isPaginationError,
-} from "../../lib/utils";
+import { formatActorDomain, buildReportDateFilter, buildGenreFilter, parsePagination, isPaginationError } from "../../lib/utils";
 
 const router = Router();
 
@@ -64,7 +59,6 @@ router.use(authenticate);
  *           type: integer
  *           default: 1
  *           minimum: 1
- *         description: "페이지 번호 (1부터 시작)"
  *       - in: query
  *         name: limit
  *         schema:
@@ -72,53 +66,11 @@ router.use(authenticate);
  *           default: 20
  *           minimum: 1
  *           maximum: 100
- *         description: "페이지당 항목 수"
  *     responses:
  *       200:
  *         description: "배우별 통계 데이터"
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 data:
- *                   type: array
- *                   items:
- *                     type: object
- *                     properties:
- *                       actorName:
- *                         type: string
- *                       viewCount:
- *                         type: integer
- *                       totalTicketPrice:
- *                         type: integer
- *                       uniquePerformances:
- *                         type: integer
- *                       performanceList:
- *                         type: array
- *                         items:
- *                           type: string
- *                 pagination:
- *                   type: object
- *                   properties:
- *                     total:
- *                       type: integer
- *                       description: "전체 배우 수"
- *                     page:
- *                       type: integer
- *                       description: "현재 페이지 번호"
- *                     limit:
- *                       type: integer
- *                       description: "페이지당 항목 수"
- *                     totalPages:
- *                       type: integer
- *                       description: "전체 페이지 수"
  *       401:
  *         description: "인증 실패"
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
  */
 router.get("/actors", async (req: Request, res: Response): Promise<void> => {
   try {
@@ -155,15 +107,15 @@ router.get("/actors", async (req: Request, res: Response): Promise<void> => {
 
     const ticketFilter = { userId, ...dateFilter, ...genreFilter };
 
-    // Step 1: DB에서 배우별 관람 횟수 집계 (전체 배우 목록)
-    const actorCounts = await prisma.ticketCasting.groupBy({
-      by: ["actorName"],
+    // Step 1: 배우별 관람 횟수 집계
+    const actorCounts = await prisma.ticketActor.groupBy({
+      by: ["actorId"],
       where: {
         ticket: ticketFilter,
-        ...(search ? { actorName: { contains: search as string } } : {}),
+        ...(search ? { actor: { name: { contains: search as string } } } : {}),
       },
-      _count: { actorName: true },
-      orderBy: { _count: { actorName: "desc" } },
+      _count: { actorId: true },
+      orderBy: { _count: { actorId: "desc" } },
     });
 
     const total = actorCounts.length;
@@ -178,35 +130,48 @@ router.get("/actors", async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Step 2: 현재 페이지 배우들의 상세 정보만 조회
-    const actorNames = paginatedCounts.map((g) => g.actorName);
-    const castings = await prisma.ticketCasting.findMany({
-      where: {
-        actorName: { in: actorNames },
-        ticket: ticketFilter,
-      },
-      include: {
-        ticket: { select: { ticketPrice: true, performanceName: true } },
-      },
-    });
+    // Step 2: 현재 페이지 배우들의 상세 정보 조회
+    const actorIds = paginatedCounts.map((g) => g.actorId);
+
+    const [actorDetails, ticketActors] = await Promise.all([
+      prisma.actor.findMany({
+        where: { id: { in: actorIds } },
+        select: { id: true, name: true, domain: true, status: true },
+      }),
+      prisma.ticketActor.findMany({
+        where: { actorId: { in: actorIds }, ticket: ticketFilter },
+        select: {
+          actorId: true,
+          ticket: { select: { ticketPrice: true, performanceName: true } },
+        },
+      }),
+    ]);
+
+    const actorMap = new Map(actorDetails.map((a) => [a.id, a]));
 
     const detailMap: Record<string, { totalTicketPrice: number; performances: Set<string> }> = {};
-    castings.forEach((casting) => {
-      const name = casting.actorName;
-      if (!detailMap[name]) {
-        detailMap[name] = { totalTicketPrice: 0, performances: new Set() };
+    ticketActors.forEach((ta) => {
+      const id = ta.actorId;
+      if (!detailMap[id]) {
+        detailMap[id] = { totalTicketPrice: 0, performances: new Set() };
       }
-      detailMap[name].totalTicketPrice += casting.ticket.ticketPrice;
-      detailMap[name].performances.add(casting.ticket.performanceName);
+      detailMap[id].totalTicketPrice += ta.ticket.ticketPrice;
+      detailMap[id].performances.add(ta.ticket.performanceName);
     });
 
-    const data = paginatedCounts.map((group) => ({
-      actorName: group.actorName,
-      viewCount: group._count.actorName,
-      totalTicketPrice: detailMap[group.actorName]?.totalTicketPrice ?? 0,
-      uniquePerformances: detailMap[group.actorName]?.performances.size ?? 0,
-      performanceList: Array.from(detailMap[group.actorName]?.performances ?? []),
-    }));
+    const data = paginatedCounts.map((group) => {
+      const actor = actorMap.get(group.actorId);
+      return {
+        actorId: group.actorId,
+        actorName: actor?.name ?? "",
+        domain: formatActorDomain(actor?.domain ?? null),
+        status: actor?.status,
+        viewCount: group._count.actorId,
+        totalTicketPrice: detailMap[group.actorId]?.totalTicketPrice ?? 0,
+        uniquePerformances: detailMap[group.actorId]?.performances.size ?? 0,
+        performanceList: Array.from(detailMap[group.actorId]?.performances ?? []),
+      };
+    });
 
     res.json({
       data,
@@ -228,7 +193,7 @@ router.get("/actors", async (req: Request, res: Response): Promise<void> => {
 
 /**
  * @openapi
- * /api/reports/actors/{actorName}:
+ * /api/reports/actors/{actorId}:
  *   get:
  *     summary: 배우 상세 정보
  *     description: >
@@ -239,131 +204,81 @@ router.get("/actors", async (req: Request, res: Response): Promise<void> => {
  *       - bearerAuth: []
  *     parameters:
  *       - in: path
- *         name: actorName
+ *         name: actorId
  *         required: true
  *         schema:
  *           type: string
- *         description: "배우명 (URL 인코딩 필요)"
+ *           format: uuid
+ *         description: "배우 ID"
  *       - in: query
  *         name: startDate
  *         schema:
  *           type: string
  *           format: date
- *         description: "조회 시작일 (YYYY-MM-DD). 지정 시 year/month 무시"
  *       - in: query
  *         name: endDate
  *         schema:
  *           type: string
  *           format: date
- *         description: "조회 종료일 (YYYY-MM-DD). 지정 시 year/month 무시"
  *       - in: query
  *         name: year
  *         schema:
  *           type: string
- *         description: "연도 (예: 2024). startDate/endDate가 없을 때 사용"
  *       - in: query
  *         name: month
  *         schema:
  *           type: string
- *         description: "월 (year와 함께 사용, 예: 01, 02, ..., 12)"
  *       - in: query
  *         name: genre
  *         schema:
  *           type: string
  *           enum: [뮤지컬, 연극]
- *         description: "장르 필터 (없으면 전체)"
  *     responses:
  *       200:
  *         description: "배우 상세 정보 및 티켓 목록"
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 actor:
- *                   type: object
- *                   properties:
- *                     actorName:
- *                       type: string
- *                     viewCount:
- *                       type: integer
- *                     totalTicketPrice:
- *                       type: integer
- *                     uniquePerformances:
- *                       type: integer
- *                     performanceList:
- *                       type: array
- *                       items:
- *                         type: string
- *                 tickets:
- *                   type: array
- *                   items:
- *                     type: object
- *                     properties:
- *                       id:
- *                         type: string
- *                         format: uuid
- *                       date:
- *                         type: string
- *                         format: date
- *                       performanceName:
- *                         type: string
- *                       theater:
- *                         type: string
- *                       seat:
- *                         type: string
- *                       rating:
- *                         type: integer
- *                       posterUrl:
- *                         type: string
  *       404:
  *         description: "배우를 찾을 수 없습니다"
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
  *       401:
  *         description: "인증 실패"
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
  */
-router.get(
-  "/actors/:actorName",
-  async (req: Request, res: Response): Promise<void> => {
-    try {
-      const userId = req.userId!;
-      const { actorName } = req.params;
-      const { year, month, startDate, endDate, genre } = req.query;
+router.get("/actors/:actorId", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = req.userId!;
+    const { actorId } = req.params;
+    const { year, month, startDate, endDate, genre } = req.query;
 
-      const dateFilter = buildReportDateFilter({
-        year: year as string,
-        month: month as string,
-        startDate: startDate as string,
-        endDate: endDate as string,
-      });
-      if (dateFilter === null) {
-        res.status(400).json(
-          startDate || endDate
-            ? { error: "날짜 형식이 올바르지 않습니다. YYYY-MM-DD 형식으로 입력해주세요.", code: "INVALID_DATE" }
-            : { error: "월은 1-12 사이의 값이어야 합니다.", code: "INVALID_MONTH" }
-        );
-        return;
-      }
+    const dateFilter = buildReportDateFilter({
+      year: year as string,
+      month: month as string,
+      startDate: startDate as string,
+      endDate: endDate as string,
+    });
+    if (dateFilter === null) {
+      res.status(400).json(
+        startDate || endDate
+          ? { error: "날짜 형식이 올바르지 않습니다. YYYY-MM-DD 형식으로 입력해주세요.", code: "INVALID_DATE" }
+          : { error: "월은 1-12 사이의 값이어야 합니다.", code: "INVALID_MONTH" }
+      );
+      return;
+    }
 
-      const genreFilter = buildGenreFilter(genre as string);
-      if (genreFilter === null) {
-        res.status(400).json({ error: "장르는 '뮤지컬' 또는 '연극'이어야 합니다.", code: "INVALID_GENRE" });
-        return;
-      }
+    const genreFilter = buildGenreFilter(genre as string);
+    if (genreFilter === null) {
+      res.status(400).json({ error: "장르는 '뮤지컬' 또는 '연극'이어야 합니다.", code: "INVALID_GENRE" });
+      return;
+    }
 
-      const castings = await prisma.ticketCasting.findMany({
+    const [actor, ticketActors] = await Promise.all([
+      prisma.actor.findUnique({
+        where: { id: actorId },
+        select: { id: true, name: true, domain: true, status: true },
+      }),
+      prisma.ticketActor.findMany({
         where: {
-          actorName: decodeURIComponent(actorName),
+          actorId,
           ticket: { userId, ...dateFilter, ...genreFilter },
         },
-        include: {
+        select: {
           ticket: {
             select: {
               id: true,
@@ -377,49 +292,52 @@ router.get(
             },
           },
         },
-      });
+      }),
+    ]);
 
-      if (castings.length === 0) {
-        res.status(404).json({ error: "배우를 찾을 수 없습니다.", code: "ACTOR_NOT_FOUND" });
-        return;
-      }
-
-      const performances = new Set<string>();
-      let totalTicketPrice = 0;
-      castings.forEach((casting) => {
-        performances.add(casting.ticket.performanceName);
-        totalTicketPrice += casting.ticket.ticketPrice;
-      });
-
-      const actor = {
-        actorName: decodeURIComponent(actorName),
-        viewCount: castings.length,
-        totalTicketPrice,
-        uniquePerformances: performances.size,
-        performanceList: Array.from(performances),
-      };
-
-      const tickets = castings
-        .map((casting) => ({
-          id: casting.ticket.id,
-          date: casting.ticket.date.toISOString().split("T")[0],
-          performanceName: casting.ticket.performanceName,
-          theater: casting.ticket.theater,
-          seat: casting.ticket.seat,
-          rating: casting.ticket.rating,
-          posterUrl: casting.ticket.posterUrl,
-        }))
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-      res.json({ actor, tickets });
-    } catch (error) {
-      console.error("배우 상세 정보 오류:", error);
-      res.status(500).json({
-        error: "배우 상세 정보를 가져오는 중 오류가 발생했습니다.",
-        code: "GET_ACTOR_DETAIL_ERROR",
-      });
+    if (!actor || ticketActors.length === 0) {
+      res.status(404).json({ error: "배우를 찾을 수 없습니다.", code: "ACTOR_NOT_FOUND" });
+      return;
     }
+
+    const performances = new Set<string>();
+    let totalTicketPrice = 0;
+    ticketActors.forEach((ta) => {
+      performances.add(ta.ticket.performanceName);
+      totalTicketPrice += ta.ticket.ticketPrice;
+    });
+
+    const actorStat = {
+      actorId: actor.id,
+      actorName: actor.name,
+      domain: formatActorDomain(actor.domain),
+      status: actor.status,
+      viewCount: ticketActors.length,
+      totalTicketPrice,
+      uniquePerformances: performances.size,
+      performanceList: Array.from(performances),
+    };
+
+    const tickets = ticketActors
+      .map((ta) => ({
+        id: ta.ticket.id,
+        date: ta.ticket.date.toISOString().split("T")[0],
+        performanceName: ta.ticket.performanceName,
+        theater: ta.ticket.theater,
+        seat: ta.ticket.seat,
+        rating: ta.ticket.rating,
+        posterUrl: ta.ticket.posterUrl,
+      }))
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    res.json({ actor: actorStat, tickets });
+  } catch (error) {
+    console.error("배우 상세 정보 오류:", error);
+    res.status(500).json({
+      error: "배우 상세 정보를 가져오는 중 오류가 발생했습니다.",
+      code: "GET_ACTOR_DETAIL_ERROR",
+    });
   }
-);
+});
 
 export default router;

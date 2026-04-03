@@ -11,6 +11,7 @@ import {
   formatTime,
   parseGenre,
   formatGenre,
+  formatActorDomain,
   parsePagination,
   isPaginationError,
 } from "../lib/utils";
@@ -20,14 +21,20 @@ const router = Router();
 // 모든 티켓 라우트는 인증 필요
 router.use(authenticate);
 
-type TicketWithCastings = Prisma.TicketGetPayload<{
-  include: { castings: { select: { actorName: true } } };
+type TicketWithActors = Prisma.TicketGetPayload<{
+  include: {
+    ticketActors: {
+      select: {
+        actor: { select: { id: true; name: true; domain: true; status: true } };
+      };
+    };
+  };
 }>;
 
 /**
  * 티켓 데이터를 응답 형식으로 변환
  */
-const formatTicketResponse = (ticket: TicketWithCastings) => {
+const formatTicketResponse = (ticket: TicketWithActors) => {
   return {
     id: ticket.id,
     date: formatDate(ticket.date),
@@ -43,11 +50,24 @@ const formatTicketResponse = (ticket: TicketWithCastings) => {
     rating: ticket.rating,
     review: ticket.review,
     posterUrl: ticket.posterUrl,
-    casting: ticket.castings.map((c) => c.actorName),
+    casting: ticket.ticketActors.map((ta) => ({
+      id: ta.actor.id,
+      name: ta.actor.name,
+      domain: formatActorDomain(ta.actor.domain),
+      status: ta.actor.status,
+    })),
     createdAt: ticket.createdAt,
     updatedAt: ticket.updatedAt,
   };
 };
+
+const ticketActorsInclude = {
+  ticketActors: {
+    select: {
+      actor: { select: { id: true, name: true, domain: true, status: true } },
+    },
+  },
+} as const;
 
 /**
  * @openapi
@@ -78,14 +98,13 @@ const formatTicketResponse = (ticket: TicketWithCastings) => {
  *         name: actorName
  *         schema:
  *           type: string
- *         description: 배우명 검색 (부분 일치, casting 배열 내 포함 여부)
+ *         description: 배우명 검색 (부분 일치)
  *       - in: query
  *         name: page
  *         schema:
  *           type: integer
  *           default: 1
  *           minimum: 1
- *         description: 페이지 번호
  *       - in: query
  *         name: limit
  *         schema:
@@ -93,40 +112,11 @@ const formatTicketResponse = (ticket: TicketWithCastings) => {
  *           default: 50
  *           minimum: 1
  *           maximum: 100
- *         description: 페이지당 항목 수
  *     responses:
  *       200:
  *         description: 티켓 목록
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 data:
- *                   type: array
- *                   items:
- *                     $ref: '#/components/schemas/Ticket'
- *                 pagination:
- *                   type: object
- *                   properties:
- *                     total:
- *                       type: integer
- *                       description: 전체 티켓 수
- *                     page:
- *                       type: integer
- *                       description: 현재 페이지 번호
- *                     limit:
- *                       type: integer
- *                       description: 페이지당 항목 수
- *                     totalPages:
- *                       type: integer
- *                       description: 전체 페이지 수
  *       401:
  *         description: 인증 실패
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
  */
 router.get("/", async (req: Request, res: Response): Promise<void> => {
   try {
@@ -156,14 +146,14 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
     }
 
     if (actorName) {
-      where.castings = { some: { actorName: { contains: actorName as string } } };
+      where.ticketActors = { some: { actor: { name: { contains: actorName as string } } } };
     }
 
     const [total, tickets] = await Promise.all([
       prisma.ticket.count({ where }),
       prisma.ticket.findMany({
         where,
-        include: { castings: { select: { actorName: true } } },
+        include: ticketActorsInclude,
         orderBy: { date: "desc" },
         skip: (pageNum - 1) * limitNum,
         take: limitNum,
@@ -223,57 +213,37 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
  *                 enum: [연극, 뮤지컬]
  *               isChild:
  *                 type: boolean
- *                 default: false
  *               theater:
  *                 type: string
  *               seat:
  *                 type: string
  *               ticketPrice:
  *                 type: integer
- *                 default: 0
  *               companion:
  *                 type: string
  *               mdPrice:
  *                 type: integer
- *                 default: 0
  *               rating:
  *                 type: integer
  *                 minimum: 0
  *                 maximum: 5
- *                 default: 0
  *               review:
  *                 type: string
  *               posterUrl:
  *                 type: string
- *               casting:
+ *               castingIds:
  *                 type: array
  *                 items:
  *                   type: string
+ *                   format: uuid
+ *                 description: 배우 ID 배열
  *     responses:
  *       201:
  *         description: 티켓 생성 성공
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                 id:
- *                   type: string
- *                   format: uuid
  *       400:
  *         description: 필수 필드 누락
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
  *       401:
  *         description: 인증 실패
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
  */
 router.post("/", async (req: Request, res: Response): Promise<void> => {
   try {
@@ -292,7 +262,7 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
       rating,
       review,
       posterUrl,
-      casting,
+      castingIds,
     } = req.body;
 
     if (!date || !time || !performanceName || !theater) {
@@ -320,12 +290,12 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
         rating: rating || 0,
         review: review || null,
         posterUrl: posterUrl || null,
-        castings:
-          casting && Array.isArray(casting)
-            ? { create: casting.map((actorName: string) => ({ actorName })) }
+        ticketActors:
+          castingIds && Array.isArray(castingIds) && castingIds.length > 0
+            ? { create: castingIds.map((actorId: string) => ({ actorId })) }
             : undefined,
       },
-      include: { castings: { select: { actorName: true } } },
+      include: ticketActorsInclude,
     });
 
     res.status(201).json({ message: "티켓이 생성되었습니다.", id: ticket.id });
@@ -353,7 +323,6 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
  *         schema:
  *           type: string
  *           format: uuid
- *         description: "티켓 ID"
  *     requestBody:
  *       required: true
  *       content:
@@ -392,32 +361,19 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
  *                 type: string
  *               posterUrl:
  *                 type: string
- *               casting:
+ *               castingIds:
  *                 type: array
  *                 items:
  *                   type: string
+ *                   format: uuid
+ *                 description: "배우 ID 배열 (포함 시 기존 캐스팅 전체 교체)"
  *     responses:
  *       200:
- *         description: "티켓 수정 성공"
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
+ *         description: 티켓 수정 성공
  *       404:
- *         description: "티켓을 찾을 수 없습니다"
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
+ *         description: 티켓을 찾을 수 없습니다
  *       401:
- *         description: "인증 실패"
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
+ *         description: 인증 실패
  */
 router.put("/:id", async (req: Request, res: Response): Promise<void> => {
   try {
@@ -454,11 +410,11 @@ router.put("/:id", async (req: Request, res: Response): Promise<void> => {
 
     await prisma.ticket.update({ where: { id }, data: updateData });
 
-    if (body.casting !== undefined && Array.isArray(body.casting)) {
-      await prisma.ticketCasting.deleteMany({ where: { ticketId: id } });
-      if (body.casting.length > 0) {
-        await prisma.ticketCasting.createMany({
-          data: body.casting.map((actorName: string) => ({ ticketId: id, actorName })),
+    if (body.castingIds !== undefined && Array.isArray(body.castingIds)) {
+      await prisma.ticketActor.deleteMany({ where: { ticketId: id } });
+      if (body.castingIds.length > 0) {
+        await prisma.ticketActor.createMany({
+          data: body.castingIds.map((actorId: string) => ({ ticketId: id, actorId })),
         });
       }
     }
@@ -488,29 +444,13 @@ router.put("/:id", async (req: Request, res: Response): Promise<void> => {
  *         schema:
  *           type: string
  *           format: uuid
- *         description: "티켓 ID"
  *     responses:
  *       200:
- *         description: "티켓 삭제 성공"
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
+ *         description: 티켓 삭제 성공
  *       404:
- *         description: "티켓을 찾을 수 없습니다"
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
+ *         description: 티켓을 찾을 수 없습니다
  *       401:
- *         description: "인증 실패"
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
+ *         description: 인증 실패
  */
 router.delete("/:id", async (req: Request, res: Response): Promise<void> => {
   try {
@@ -558,40 +498,10 @@ router.delete("/:id", async (req: Request, res: Response): Promise<void> => {
  *     responses:
  *       200:
  *         description: 날짜별로 그룹화된 티켓 목록
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 data:
- *                   type: array
- *                   items:
- *                     type: object
- *                     properties:
- *                       id:
- *                         type: string
- *                         format: uuid
- *                       posterUrl:
- *                         type: string
- *                         nullable: true
- *                       date:
- *                         type: string
- *                         format: date
- *                       time:
- *                         type: string
- *                         format: time
  *       400:
  *         description: 잘못된 요청
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
  *       401:
  *         description: 인증 실패
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
  */
 router.get("/month", async (req: Request, res: Response): Promise<void> => {
   try {
@@ -677,26 +587,13 @@ router.get("/month", async (req: Request, res: Response): Promise<void> => {
  *         schema:
  *           type: string
  *           format: uuid
- *         description: "티켓 ID"
  *     responses:
  *       200:
- *         description: "티켓 상세 정보"
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Ticket'
+ *         description: 티켓 상세 정보
  *       404:
- *         description: "티켓을 찾을 수 없습니다"
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
+ *         description: 티켓을 찾을 수 없습니다
  *       401:
- *         description: "인증 실패"
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
+ *         description: 인증 실패
  */
 router.get("/:id", async (req: Request, res: Response): Promise<void> => {
   try {
@@ -705,7 +602,7 @@ router.get("/:id", async (req: Request, res: Response): Promise<void> => {
 
     const ticket = await prisma.ticket.findFirst({
       where: { id, userId },
-      include: { castings: { select: { actorName: true } } },
+      include: ticketActorsInclude,
     });
 
     if (!ticket) {

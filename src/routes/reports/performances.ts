@@ -539,7 +539,7 @@ router.get(
           ticketPrice: true,
           posterUrl: true,
           genre: true,
-          castings: { select: { actorName: true } },
+          ticketActors: { select: { actor: { select: { name: true } } } },
         },
         orderBy: { date: "desc" },
       });
@@ -573,7 +573,7 @@ router.get(
         seat: ticket.seat,
         rating: ticket.rating,
         review: ticket.review,
-        casting: ticket.castings.map((c) => c.actorName),
+        casting: ticket.ticketActors.map((ta) => ta.actor.name),
       }));
 
       res.json({ performance, tickets: formattedTickets });
