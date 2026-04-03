@@ -8,6 +8,7 @@ import userRoutes from "./routes/users";
 import authRoutes from "./routes/auth";
 import ticketRoutes from "./routes/tickets";
 import reportRoutes from "./routes/reports/index";
+import actorRoutes from "./routes/actors";
 import kopisRoutes from "./routes/kopis";
 import proxyRoutes from "./routes/proxy";
 
@@ -90,6 +91,7 @@ app.use("/api/users", userRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/tickets", ticketRoutes);
 app.use("/api/reports", reportRoutes);
+app.use("/api", actorRoutes);
 app.use("/api/kopis", kopisRoutes);
 app.use("/api/proxy", proxyRoutes);
 
