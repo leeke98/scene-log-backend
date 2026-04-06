@@ -11,6 +11,7 @@ import reportRoutes from "./routes/reports/index";
 import actorRoutes from "./routes/actors";
 import kopisRoutes from "./routes/kopis";
 import proxyRoutes from "./routes/proxy";
+import markRoutes from "./routes/marks";
 
 dotenv.config();
 
@@ -94,6 +95,7 @@ app.use("/api/reports", reportRoutes);
 app.use("/api", actorRoutes);
 app.use("/api/kopis", kopisRoutes);
 app.use("/api/proxy", proxyRoutes);
+app.use("/api/marks", markRoutes);
 
 // Start server
 const server = app.listen(PORT, () => {

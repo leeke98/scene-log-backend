@@ -45,10 +45,11 @@ model User {
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
-  tickets       Ticket[]
-  refreshTokens RefreshToken[]
-  createdActors Actor[]
-  actorReports  ActorReport[]
+  tickets              Ticket[]
+  refreshTokens        RefreshToken[]
+  createdActors        Actor[]
+  actorReports         ActorReport[]
+  performanceMarks     UserPerformanceMark[]
 
   @@index([username], name: "idx_username")
   @@index([provider, providerId], name: "idx_provider")
@@ -136,6 +137,25 @@ model TicketActor {
 
   @@id([ticketId, actorId])
   @@map("ticket_actors")
+}
+
+// 위시리스트 테이블
+model UserPerformanceMark {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  kopisId   String   @map("kopis_id")
+  title     String
+  posterUrl String?  @map("poster_url")
+  startDate String?  @map("start_date")
+  endDate   String?  @map("end_date")
+  venue     String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, kopisId])
+  @@index([userId], name: "idx_marks_user_id")
+  @@map("user_performance_marks")
 }
 
 // 배우 신고 테이블
