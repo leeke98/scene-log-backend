@@ -269,9 +269,21 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
       castingIds,
     } = req.body;
 
-    if (!date || !time || !performanceName || !theater) {
+    if (!date || !time) {
       res.status(400).json({
-        error: "필수 필드(date, time, performanceName, theater)가 필요합니다.",
+        error: "필수 필드(date, time)가 필요합니다.",
+        code: "MISSING_FIELDS",
+      });
+      return;
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const isFutureDate = new Date(date) > today;
+
+    if (!isFutureDate && (!performanceName || !theater)) {
+      res.status(400).json({
+        error: "필수 필드(performanceName, theater)가 필요합니다.",
         code: "MISSING_FIELDS",
       });
       return;
@@ -283,10 +295,10 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
         userId,
         date: parseDate(date),
         time: parseTime(time),
-        performanceName,
+        performanceName: performanceName || "",
         genre: parseGenre(genre),
         isChild: isChild || false,
-        theater,
+        theater: theater || "",
         seat: seat || null,
         ticketPrice: ticketPrice || 0,
         companion: companion || null,
