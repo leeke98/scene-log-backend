@@ -50,6 +50,8 @@ const formatTicketResponse = (ticket: TicketWithActors) => {
     rating: ticket.rating,
     review: ticket.review,
     posterUrl: ticket.posterUrl,
+    isLinked: ticket.isLinked,
+    kopisId: ticket.kopisId,
     casting: ticket.ticketActors.map((ta) => ({
       id: ta.actor.id,
       name: ta.actor.name,
@@ -262,6 +264,8 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
       rating,
       review,
       posterUrl,
+      isLinked,
+      kopisId,
       castingIds,
     } = req.body;
 
@@ -290,6 +294,8 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
         rating: rating || 0,
         review: review || null,
         posterUrl: posterUrl || null,
+        isLinked: isLinked || false,
+        kopisId: kopisId || null,
         ticketActors:
           castingIds && Array.isArray(castingIds) && castingIds.length > 0
             ? { create: castingIds.map((actorId: string) => ({ actorId })) }
@@ -407,6 +413,8 @@ router.put("/:id", async (req: Request, res: Response): Promise<void> => {
       }
       updateData.posterUrl = body.posterUrl;
     }
+    if (body.isLinked !== undefined) updateData.isLinked = body.isLinked;
+    if (body.kopisId !== undefined) updateData.kopisId = body.kopisId;
 
     await prisma.ticket.update({ where: { id }, data: updateData });
 
