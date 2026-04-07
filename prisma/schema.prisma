@@ -206,21 +206,34 @@ model RewatchSeason {
 
 // 재관람카드 - 마일스톤 규칙 (시즌 당 N개, 한 번 설정)
 model RewatchMilestone {
+  id         String   @id @default(uuid())
+  seasonId   String   @map("season_id")
+  stampCount Int      @map("stamp_count")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  season  RewatchSeason          @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  rewards RewatchMilestoneReward[]
+
+  @@index([seasonId], name: "idx_rewatch_milestone_season_id")
+  @@map("rewatch_milestones")
+}
+
+// 재관람카드 - 마일스톤 혜택 (마일스톤당 N개 가능)
+model RewatchMilestoneReward {
   id              String            @id @default(uuid())
-  seasonId        String            @map("season_id")
-  stampCount      Int               @map("stamp_count")
+  milestoneId     String            @map("milestone_id")
   rewardType      RewatchRewardType @map("reward_type")
   discountPercent Int?              @map("discount_percent")
   voucherQty      Int?              @default(1) @map("voucher_qty")
   merchandiseDesc String?           @map("merchandise_desc")
   createdAt       DateTime          @default(now()) @map("created_at")
 
-  season              RewatchSeason              @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  milestone           RewatchMilestone           @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
   voucherUsages       RewatchVoucherUsage[]
   merchandiseReceipts RewatchMerchandiseReceipt[]
 
-  @@index([seasonId], name: "idx_rewatch_milestone_season_id")
-  @@map("rewatch_milestones")
+  @@index([milestoneId], name: "idx_rewatch_reward_milestone_id")
+  @@map("rewatch_milestone_rewards")
 }
 
 // 재관람카드 - 카드 인스턴스 (시즌 당 여러 개 가능)
@@ -257,34 +270,34 @@ model RewatchCardTicket {
 }
 
 // 재관람카드 - 할인권 사용 이력
-// 잔여 장 수 = milestone.voucherQty - COUNT(milestoneId + cardId)
+// 잔여 장 수 = reward.voucherQty - COUNT(rewardId + cardId)
 model RewatchVoucherUsage {
-  id          String   @id @default(uuid())
-  milestoneId String   @map("milestone_id")
-  cardId      String   @map("card_id")
-  ticketId    String   @map("ticket_id")
-  usedAt      DateTime @default(now()) @map("used_at")
+  id       String   @id @default(uuid())
+  rewardId String   @map("reward_id")
+  cardId   String   @map("card_id")
+  ticketId String   @map("ticket_id")
+  usedAt   DateTime @default(now()) @map("used_at")
 
-  milestone RewatchMilestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
-  card      RewatchCard      @relation(fields: [cardId], references: [id], onDelete: Cascade)
-  ticket    Ticket           @relation(fields: [ticketId], references: [id])
+  reward RewatchMilestoneReward @relation(fields: [rewardId], references: [id], onDelete: Cascade)
+  card   RewatchCard            @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  ticket Ticket                 @relation(fields: [ticketId], references: [id])
 
-  @@index([milestoneId, cardId], name: "idx_rewatch_voucher_usage")
+  @@index([rewardId, cardId], name: "idx_rewatch_voucher_usage")
   @@map("rewatch_voucher_usages")
 }
 
-// 재관람카드 - 굿즈 수령 여부 (카드 인스턴스 × 마일스톤)
+// 재관람카드 - 굿즈 수령 여부 (카드 인스턴스 × 혜택)
 model RewatchMerchandiseReceipt {
-  id          String    @id @default(uuid())
-  milestoneId String    @map("milestone_id")
-  cardId      String    @map("card_id")
-  received    Boolean   @default(false)
-  receivedAt  DateTime? @map("received_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
+  id         String    @id @default(uuid())
+  rewardId   String    @map("reward_id")
+  cardId     String    @map("card_id")
+  received   Boolean   @default(false)
+  receivedAt DateTime? @map("received_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
 
-  milestone RewatchMilestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
-  card      RewatchCard      @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  reward RewatchMilestoneReward @relation(fields: [rewardId], references: [id], onDelete: Cascade)
+  card   RewatchCard            @relation(fields: [cardId], references: [id], onDelete: Cascade)
 
-  @@unique([milestoneId, cardId])
+  @@unique([rewardId, cardId])
   @@map("rewatch_merchandise_receipts")
 }

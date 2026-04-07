@@ -27,6 +27,13 @@ async function findOwnedMilestone(milestoneId: string, userId: string) {
   });
 }
 
+/** 혜택이 현재 유저 소유인지 확인 */
+async function findOwnedReward(rewardId: string, userId: string) {
+  return prisma.rewatchMilestoneReward.findFirst({
+    where: { id: rewardId, milestone: { season: { userId } } },
+  });
+}
+
 // ─── 시즌 ─────────────────────────────────────────────────────────────────────
 
 /**
@@ -40,7 +47,10 @@ router.get("/seasons", async (req: Request, res: Response): Promise<void> => {
     const seasons = await prisma.rewatchSeason.findMany({
       where: { userId },
       include: {
-        milestones: { orderBy: { stampCount: "asc" } },
+        milestones: {
+          orderBy: { stampCount: "asc" },
+          include: { rewards: { orderBy: { createdAt: "asc" } } },
+        },
         cards: {
           include: {
             cardTickets: { select: { stampCount: true } },
@@ -70,10 +80,13 @@ router.get("/seasons", async (req: Request, res: Response): Promise<void> => {
         milestones: season.milestones.map((m) => ({
           id: m.id,
           stampCount: m.stampCount,
-          rewardType: m.rewardType,
-          discountPercent: m.discountPercent,
-          voucherQty: m.voucherQty,
-          merchandiseDesc: m.merchandiseDesc,
+          rewards: m.rewards.map((r) => ({
+            id: r.id,
+            rewardType: r.rewardType,
+            discountPercent: r.discountPercent,
+            voucherQty: r.voucherQty,
+            merchandiseDesc: r.merchandiseDesc,
+          })),
         })),
         cards,
         cardCount: cards.length,
@@ -130,7 +143,7 @@ router.post("/seasons", async (req: Request, res: Response): Promise<void> => {
 
 /**
  * GET /api/rewatch/seasons/:seasonId
- * 시즌 상세 (마일스톤, 카드, 스탬프, 달성 여부 포함)
+ * 시즌 상세 (마일스톤+혜택, 카드, 스탬프, 달성 여부 포함)
  */
 router.get("/seasons/:seasonId", async (req: Request, res: Response): Promise<void> => {
   try {
@@ -140,7 +153,10 @@ router.get("/seasons/:seasonId", async (req: Request, res: Response): Promise<vo
     const season = await prisma.rewatchSeason.findFirst({
       where: { id: seasonId, userId },
       include: {
-        milestones: { orderBy: { stampCount: "asc" } },
+        milestones: {
+          orderBy: { stampCount: "asc" },
+          include: { rewards: { orderBy: { createdAt: "asc" } } },
+        },
         cards: {
           orderBy: { createdAt: "asc" },
           include: {
@@ -160,10 +176,10 @@ router.get("/seasons/:seasonId", async (req: Request, res: Response): Promise<vo
               },
             },
             voucherUsages: {
-              select: { id: true, milestoneId: true, ticketId: true, usedAt: true },
+              select: { id: true, rewardId: true, ticketId: true, usedAt: true },
             },
             merchandiseReceipts: {
-              select: { id: true, milestoneId: true, received: true, receivedAt: true },
+              select: { id: true, rewardId: true, received: true, receivedAt: true },
             },
           },
         },
@@ -180,28 +196,38 @@ router.get("/seasons/:seasonId", async (req: Request, res: Response): Promise<vo
 
       const milestoneStatuses = season.milestones.map((m) => {
         const achieved = totalStamps >= m.stampCount;
-        if (m.rewardType === RewatchRewardType.DISCOUNT_VOUCHER) {
-          const usedCount = card.voucherUsages.filter((u) => u.milestoneId === m.id).length;
-          const remaining = (m.voucherQty ?? 1) - usedCount;
-          return {
-            milestoneId: m.id,
-            achieved,
-            voucherUsed: usedCount,
-            voucherRemaining: remaining,
-            usages: card.voucherUsages
-              .filter((u) => u.milestoneId === m.id)
-              .map((u) => ({ id: u.id, ticketId: u.ticketId, usedAt: u.usedAt })),
-          };
-        } else {
-          const receipt = card.merchandiseReceipts.find((r) => r.milestoneId === m.id);
-          return {
-            milestoneId: m.id,
-            achieved,
-            merchandiseReceiptId: receipt?.id ?? null,
-            merchandiseReceived: receipt?.received ?? false,
-            merchandiseReceivedAt: receipt?.receivedAt ?? null,
-          };
-        }
+
+        const rewardStatuses = m.rewards.map((r) => {
+          if (r.rewardType === RewatchRewardType.DISCOUNT_VOUCHER) {
+            const usages = card.voucherUsages.filter((u) => u.rewardId === r.id);
+            const remaining = (r.voucherQty ?? 1) - usages.length;
+            return {
+              rewardId: r.id,
+              rewardType: r.rewardType,
+              discountPercent: r.discountPercent,
+              voucherQty: r.voucherQty,
+              voucherUsed: usages.length,
+              voucherRemaining: remaining,
+              usages: usages.map((u) => ({ id: u.id, ticketId: u.ticketId, usedAt: u.usedAt })),
+            };
+          } else {
+            const receipt = card.merchandiseReceipts.find((rec) => rec.rewardId === r.id);
+            return {
+              rewardId: r.id,
+              rewardType: r.rewardType,
+              merchandiseDesc: r.merchandiseDesc,
+              merchandiseReceiptId: receipt?.id ?? null,
+              merchandiseReceived: receipt?.received ?? false,
+              merchandiseReceivedAt: receipt?.receivedAt ?? null,
+            };
+          }
+        });
+
+        return {
+          milestoneId: m.id,
+          achieved,
+          rewardStatuses,
+        };
       });
 
       return {
@@ -238,11 +264,14 @@ router.get("/seasons/:seasonId", async (req: Request, res: Response): Promise<vo
         milestones: season.milestones.map((m) => ({
           id: m.id,
           stampCount: m.stampCount,
-          rewardType: m.rewardType,
-          discountPercent: m.discountPercent,
-          voucherQty: m.voucherQty,
-          merchandiseDesc: m.merchandiseDesc,
           createdAt: m.createdAt,
+          rewards: m.rewards.map((r) => ({
+            id: r.id,
+            rewardType: r.rewardType,
+            discountPercent: r.discountPercent,
+            voucherQty: r.voucherQty,
+            merchandiseDesc: r.merchandiseDesc,
+          })),
         })),
         cards,
       },
@@ -280,8 +309,8 @@ router.delete("/seasons/:seasonId", async (req: Request, res: Response): Promise
 
 /**
  * POST /api/rewatch/seasons/:seasonId/milestones
- * 마일스톤 추가
- * body: { stampCount, rewardType, discountPercent?, voucherQty?, merchandiseDesc? }
+ * 마일스톤 추가 (혜택 배열 포함)
+ * body: { stampCount, rewards: Array<{ rewardType, discountPercent?, voucherQty?, merchandiseDesc? }> }
  */
 router.post(
   "/seasons/:seasonId/milestones",
@@ -289,16 +318,23 @@ router.post(
     try {
       const userId = req.userId!;
       const { seasonId } = req.params;
-      const { stampCount, rewardType, discountPercent, voucherQty, merchandiseDesc } = req.body;
+      const { stampCount, rewards } = req.body;
 
-      if (!stampCount || !rewardType) {
-        res.status(400).json({ error: "stampCount와 rewardType은 필수입니다.", code: "MISSING_FIELDS" });
+      if (!stampCount) {
+        res.status(400).json({ error: "stampCount는 필수입니다.", code: "MISSING_FIELDS" });
         return;
       }
 
-      if (!Object.values(RewatchRewardType).includes(rewardType)) {
-        res.status(400).json({ error: "rewardType이 올바르지 않습니다.", code: "INVALID_REWARD_TYPE" });
+      if (!Array.isArray(rewards) || rewards.length === 0) {
+        res.status(400).json({ error: "rewards는 1개 이상이어야 합니다.", code: "MISSING_REWARDS" });
         return;
+      }
+
+      for (const r of rewards) {
+        if (!Object.values(RewatchRewardType).includes(r.rewardType)) {
+          res.status(400).json({ error: "rewardType이 올바르지 않습니다.", code: "INVALID_REWARD_TYPE" });
+          return;
+        }
       }
 
       const season = await findOwnedSeason(seasonId, userId);
@@ -311,11 +347,16 @@ router.post(
         data: {
           seasonId,
           stampCount,
-          rewardType,
-          discountPercent: discountPercent ?? null,
-          voucherQty: voucherQty ?? 1,
-          merchandiseDesc: merchandiseDesc ?? null,
+          rewards: {
+            create: rewards.map((r: { rewardType: RewatchRewardType; discountPercent?: number; voucherQty?: number; merchandiseDesc?: string }) => ({
+              rewardType: r.rewardType,
+              discountPercent: r.discountPercent ?? null,
+              voucherQty: r.voucherQty ?? 1,
+              merchandiseDesc: r.merchandiseDesc ?? null,
+            })),
+          },
         },
+        include: { rewards: { orderBy: { createdAt: "asc" } } },
       });
 
       res.status(201).json({ data: milestone });
@@ -328,7 +369,8 @@ router.post(
 
 /**
  * PUT /api/rewatch/milestones/:milestoneId
- * 마일스톤 수정
+ * 마일스톤 stampCount 수정
+ * body: { stampCount }
  */
 router.put(
   "/milestones/:milestoneId",
@@ -344,16 +386,12 @@ router.put(
       }
 
       const updateData: Prisma.RewatchMilestoneUpdateInput = {};
-      const body = req.body;
-
-      if (body.stampCount !== undefined) updateData.stampCount = body.stampCount;
-      if (body.discountPercent !== undefined) updateData.discountPercent = body.discountPercent;
-      if (body.voucherQty !== undefined) updateData.voucherQty = body.voucherQty;
-      if (body.merchandiseDesc !== undefined) updateData.merchandiseDesc = body.merchandiseDesc;
+      if (req.body.stampCount !== undefined) updateData.stampCount = req.body.stampCount;
 
       const updated = await prisma.rewatchMilestone.update({
         where: { id: milestoneId },
         data: updateData,
+        include: { rewards: { orderBy: { createdAt: "asc" } } },
       });
 
       res.json({ data: updated });
@@ -366,7 +404,7 @@ router.put(
 
 /**
  * DELETE /api/rewatch/milestones/:milestoneId
- * 마일스톤 삭제
+ * 마일스톤 삭제 (cascade로 혜택/사용이력 모두 삭제)
  */
 router.delete(
   "/milestones/:milestoneId",
@@ -386,6 +424,113 @@ router.delete(
     } catch (error) {
       console.error("마일스톤 삭제 오류:", error);
       res.status(500).json({ error: "마일스톤 삭제에 실패했습니다.", code: "DELETE_MILESTONE_ERROR" });
+    }
+  }
+);
+
+// ─── 마일스톤 혜택 ────────────────────────────────────────────────────────────
+
+/**
+ * POST /api/rewatch/milestones/:milestoneId/rewards
+ * 혜택 추가
+ * body: { rewardType, discountPercent?, voucherQty?, merchandiseDesc? }
+ */
+router.post(
+  "/milestones/:milestoneId/rewards",
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const userId = req.userId!;
+      const { milestoneId } = req.params;
+      const { rewardType, discountPercent, voucherQty, merchandiseDesc } = req.body;
+
+      if (!rewardType || !Object.values(RewatchRewardType).includes(rewardType)) {
+        res.status(400).json({ error: "rewardType이 올바르지 않습니다.", code: "INVALID_REWARD_TYPE" });
+        return;
+      }
+
+      const milestone = await findOwnedMilestone(milestoneId, userId);
+      if (!milestone) {
+        res.status(404).json({ error: "마일스톤을 찾을 수 없습니다.", code: "MILESTONE_NOT_FOUND" });
+        return;
+      }
+
+      const reward = await prisma.rewatchMilestoneReward.create({
+        data: {
+          milestoneId,
+          rewardType,
+          discountPercent: discountPercent ?? null,
+          voucherQty: voucherQty ?? 1,
+          merchandiseDesc: merchandiseDesc ?? null,
+        },
+      });
+
+      res.status(201).json({ data: reward });
+    } catch (error) {
+      console.error("혜택 추가 오류:", error);
+      res.status(500).json({ error: "혜택 추가에 실패했습니다.", code: "CREATE_REWARD_ERROR" });
+    }
+  }
+);
+
+/**
+ * PUT /api/rewatch/rewards/:rewardId
+ * 혜택 수정
+ * body: { discountPercent?, voucherQty?, merchandiseDesc? }
+ */
+router.put(
+  "/rewards/:rewardId",
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const userId = req.userId!;
+      const { rewardId } = req.params;
+
+      const reward = await findOwnedReward(rewardId, userId);
+      if (!reward) {
+        res.status(404).json({ error: "혜택을 찾을 수 없습니다.", code: "REWARD_NOT_FOUND" });
+        return;
+      }
+
+      const updateData: Prisma.RewatchMilestoneRewardUpdateInput = {};
+      const body = req.body;
+      if (body.discountPercent !== undefined) updateData.discountPercent = body.discountPercent;
+      if (body.voucherQty !== undefined) updateData.voucherQty = body.voucherQty;
+      if (body.merchandiseDesc !== undefined) updateData.merchandiseDesc = body.merchandiseDesc;
+
+      const updated = await prisma.rewatchMilestoneReward.update({
+        where: { id: rewardId },
+        data: updateData,
+      });
+
+      res.json({ data: updated });
+    } catch (error) {
+      console.error("혜택 수정 오류:", error);
+      res.status(500).json({ error: "혜택 수정에 실패했습니다.", code: "UPDATE_REWARD_ERROR" });
+    }
+  }
+);
+
+/**
+ * DELETE /api/rewatch/rewards/:rewardId
+ * 혜택 삭제
+ */
+router.delete(
+  "/rewards/:rewardId",
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const userId = req.userId!;
+      const { rewardId } = req.params;
+
+      const reward = await findOwnedReward(rewardId, userId);
+      if (!reward) {
+        res.status(404).json({ error: "혜택을 찾을 수 없습니다.", code: "REWARD_NOT_FOUND" });
+        return;
+      }
+
+      await prisma.rewatchMilestoneReward.delete({ where: { id: rewardId } });
+      res.json({ message: "혜택이 삭제되었습니다." });
+    } catch (error) {
+      console.error("혜택 삭제 오류:", error);
+      res.status(500).json({ error: "혜택 삭제에 실패했습니다.", code: "DELETE_REWARD_ERROR" });
     }
   }
 );
@@ -499,7 +644,6 @@ router.post(
         return;
       }
 
-      // 티켓이 현재 유저 소유인지 확인
       const ticket = await prisma.ticket.findFirst({ where: { id: ticketId, userId } });
       if (!ticket) {
         res.status(404).json({ error: "티켓을 찾을 수 없습니다.", code: "TICKET_NOT_FOUND" });
@@ -614,7 +758,7 @@ router.delete(
 /**
  * POST /api/rewatch/cards/:cardId/voucher-usages
  * 할인권 사용 처리
- * body: { milestoneId, ticketId }
+ * body: { rewardId, ticketId }
  */
 router.post(
   "/cards/:cardId/voucher-usages",
@@ -622,10 +766,10 @@ router.post(
     try {
       const userId = req.userId!;
       const { cardId } = req.params;
-      const { milestoneId, ticketId } = req.body;
+      const { rewardId, ticketId } = req.body;
 
-      if (!milestoneId || !ticketId) {
-        res.status(400).json({ error: "milestoneId와 ticketId는 필수입니다.", code: "MISSING_FIELDS" });
+      if (!rewardId || !ticketId) {
+        res.status(400).json({ error: "rewardId와 ticketId는 필수입니다.", code: "MISSING_FIELDS" });
         return;
       }
 
@@ -635,23 +779,23 @@ router.post(
         return;
       }
 
-      const milestone = await findOwnedMilestone(milestoneId, userId);
-      if (!milestone) {
-        res.status(404).json({ error: "마일스톤을 찾을 수 없습니다.", code: "MILESTONE_NOT_FOUND" });
+      const reward = await findOwnedReward(rewardId, userId);
+      if (!reward) {
+        res.status(404).json({ error: "혜택을 찾을 수 없습니다.", code: "REWARD_NOT_FOUND" });
         return;
       }
 
       // 잔여 수량 확인
       const usedCount = await prisma.rewatchVoucherUsage.count({
-        where: { milestoneId, cardId },
+        where: { rewardId, cardId },
       });
-      if (usedCount >= (milestone.voucherQty ?? 1)) {
+      if (usedCount >= (reward.voucherQty ?? 1)) {
         res.status(409).json({ error: "할인권 잔여 수량이 없습니다.", code: "VOUCHER_EXHAUSTED" });
         return;
       }
 
       const usage = await prisma.rewatchVoucherUsage.create({
-        data: { milestoneId, cardId, ticketId },
+        data: { rewardId, cardId, ticketId },
       });
 
       res.status(201).json({ data: usage });
@@ -693,16 +837,16 @@ router.delete(
 // ─── 굿즈 수령 ────────────────────────────────────────────────────────────────
 
 /**
- * PATCH /api/rewatch/cards/:cardId/merchandise-receipts/:milestoneId
+ * PATCH /api/rewatch/cards/:cardId/merchandise-receipts/:rewardId
  * 굿즈 수령 토글 (없으면 생성, 있으면 received 업데이트)
  * body: { received }
  */
 router.patch(
-  "/cards/:cardId/merchandise-receipts/:milestoneId",
+  "/cards/:cardId/merchandise-receipts/:rewardId",
   async (req: Request, res: Response): Promise<void> => {
     try {
       const userId = req.userId!;
-      const { cardId, milestoneId } = req.params;
+      const { cardId, rewardId } = req.params;
       const { received } = req.body;
 
       if (typeof received !== "boolean") {
@@ -717,9 +861,9 @@ router.patch(
       }
 
       const receipt = await prisma.rewatchMerchandiseReceipt.upsert({
-        where: { milestoneId_cardId: { milestoneId, cardId } },
+        where: { rewardId_cardId: { rewardId, cardId } },
         create: {
-          milestoneId,
+          rewardId,
           cardId,
           received,
           receivedAt: received ? new Date() : null,
