@@ -133,7 +133,7 @@ router.get("/actors", async (req: Request, res: Response): Promise<void> => {
     // Step 2: 현재 페이지 배우들의 상세 정보 조회
     const actorIds = paginatedCounts.map((g) => g.actorId);
 
-    const [actorDetails, ticketActors] = await Promise.all([
+    const [actorDetails, ticketActors, userActorImages] = await Promise.all([
       prisma.actor.findMany({
         where: { id: { in: actorIds } },
         select: { id: true, name: true, domain: true, status: true },
@@ -145,9 +145,14 @@ router.get("/actors", async (req: Request, res: Response): Promise<void> => {
           ticket: { select: { ticketPrice: true, performanceName: true } },
         },
       }),
+      prisma.userActorImage.findMany({
+        where: { userId, actorId: { in: actorIds } },
+        select: { actorId: true, imageUrl: true },
+      }),
     ]);
 
     const actorMap = new Map(actorDetails.map((a) => [a.id, a]));
+    const imageMap = new Map(userActorImages.map((img) => [img.actorId, img.imageUrl]));
 
     const detailMap: Record<string, { totalTicketPrice: number; performances: Set<string> }> = {};
     ticketActors.forEach((ta) => {
@@ -170,6 +175,7 @@ router.get("/actors", async (req: Request, res: Response): Promise<void> => {
         totalTicketPrice: detailMap[group.actorId]?.totalTicketPrice ?? 0,
         uniquePerformances: detailMap[group.actorId]?.performances.size ?? 0,
         performanceList: Array.from(detailMap[group.actorId]?.performances ?? []),
+        imageUrl: imageMap.get(group.actorId) ?? null,
       };
     });
 
@@ -268,7 +274,7 @@ router.get("/actors/:actorId", async (req: Request, res: Response): Promise<void
       return;
     }
 
-    const [actor, ticketActors] = await Promise.all([
+    const [actor, ticketActors, userActorImage] = await Promise.all([
       prisma.actor.findUnique({
         where: { id: actorId },
         select: { id: true, name: true, domain: true, status: true },
@@ -293,6 +299,10 @@ router.get("/actors/:actorId", async (req: Request, res: Response): Promise<void
           },
         },
       }),
+      prisma.userActorImage.findUnique({
+        where: { userId_actorId: { userId, actorId } },
+        select: { imageUrl: true },
+      }),
     ]);
 
     if (!actor || ticketActors.length === 0) {
@@ -316,6 +326,7 @@ router.get("/actors/:actorId", async (req: Request, res: Response): Promise<void
       totalTicketPrice,
       uniquePerformances: performances.size,
       performanceList: Array.from(performances),
+      imageUrl: userActorImage?.imageUrl ?? null,
     };
 
     const tickets = ticketActors

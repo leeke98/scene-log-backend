@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma";
 import { authenticate } from "../middleware/auth";
 import { authenticateAdmin } from "../middleware/auth";
 import { parseActorDomain, formatActorDomain } from "../lib/utils";
+import { deleteCloudinaryImage } from "../lib/cloudinary";
 import { ActorDomain, ActorStatus } from "@prisma/client";
 
 const router = Router();
@@ -338,6 +339,74 @@ router.put("/actors/:id", authenticate, async (req: Request, res: Response): Pro
   } catch (error) {
     console.error("배우 수정 오류:", error);
     res.status(500).json({ error: "배우 수정 중 오류가 발생했습니다.", code: "UPDATE_ACTOR_ERROR" });
+  }
+});
+
+// ─── 배우 이미지 업로드 ────────────────────────────────────────────────────────
+
+router.post("/actors/:id/image", authenticate, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = req.userId!;
+    const { id: actorId } = req.params;
+    const { imageUrl } = req.body;
+
+    if (!imageUrl || typeof imageUrl !== "string") {
+      res.status(400).json({ error: "imageUrl이 필요합니다.", code: "MISSING_IMAGE_URL" });
+      return;
+    }
+
+    const actor = await prisma.actor.findUnique({ where: { id: actorId } });
+    if (!actor) {
+      res.status(404).json({ error: "배우를 찾을 수 없습니다.", code: "ACTOR_NOT_FOUND" });
+      return;
+    }
+
+    // 기존 이미지가 있으면 Cloudinary에서 먼저 삭제
+    const existing = await prisma.userActorImage.findUnique({
+      where: { userId_actorId: { userId, actorId } },
+    });
+    if (existing) {
+      await deleteCloudinaryImage(existing.imageUrl);
+    }
+
+    await prisma.userActorImage.upsert({
+      where: { userId_actorId: { userId, actorId } },
+      update: { imageUrl },
+      create: { userId, actorId, imageUrl },
+    });
+
+    res.json({ imageUrl });
+  } catch (error) {
+    console.error("배우 이미지 업로드 오류:", error);
+    res.status(500).json({ error: "배우 이미지 업로드 중 오류가 발생했습니다.", code: "UPLOAD_ACTOR_IMAGE_ERROR" });
+  }
+});
+
+// ─── 배우 이미지 삭제 ─────────────────────────────────────────────────────────
+
+router.delete("/actors/:id/image", authenticate, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = req.userId!;
+    const { id: actorId } = req.params;
+
+    const existing = await prisma.userActorImage.findUnique({
+      where: { userId_actorId: { userId, actorId } },
+    });
+
+    if (!existing) {
+      res.status(404).json({ error: "이미지를 찾을 수 없습니다.", code: "IMAGE_NOT_FOUND" });
+      return;
+    }
+
+    await deleteCloudinaryImage(existing.imageUrl);
+    await prisma.userActorImage.delete({
+      where: { userId_actorId: { userId, actorId } },
+    });
+
+    res.json({ message: "이미지가 삭제되었습니다." });
+  } catch (error) {
+    console.error("배우 이미지 삭제 오류:", error);
+    res.status(500).json({ error: "배우 이미지 삭제 중 오류가 발생했습니다.", code: "DELETE_ACTOR_IMAGE_ERROR" });
   }
 });
 

@@ -57,6 +57,7 @@ model User {
   actorReports         ActorReport[]
   performanceMarks     UserPerformanceMark[]
   rewatchSeasons       RewatchSeason[]
+  userActorImages      UserActorImage[]
 
   @@index([username], name: "idx_username")
   @@index([provider, providerId], name: "idx_provider")
@@ -125,11 +126,12 @@ model Actor {
   createdAt   DateTime    @default(now()) @map("created_at")
   updatedAt   DateTime    @updatedAt @map("updated_at")
 
-  canonical     Actor?        @relation("ActorMerge", fields: [canonicalId], references: [id])
-  mergedActors  Actor[]       @relation("ActorMerge")
-  createdByUser User          @relation(fields: [createdBy], references: [id])
-  ticketActors  TicketActor[]
-  reports       ActorReport[]
+  canonical       Actor?          @relation("ActorMerge", fields: [canonicalId], references: [id])
+  mergedActors    Actor[]         @relation("ActorMerge")
+  createdByUser   User            @relation(fields: [createdBy], references: [id])
+  ticketActors    TicketActor[]
+  reports         ActorReport[]
+  userActorImages UserActorImage[]
 
   @@index([name], name: "idx_actors_name")
   @@index([status], name: "idx_actors_status")
@@ -180,6 +182,20 @@ model ActorReport {
   reporter User  @relation(fields: [reportedBy], references: [id])
 
   @@map("actor_reports")
+}
+
+// 유저별 배우 이미지
+model UserActorImage {
+  userId    String   @map("user_id")
+  actorId   String   @map("actor_id")
+  imageUrl  String   @map("image_url")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  actor Actor @relation(fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@id([userId, actorId])
+  @@map("user_actor_images")
 }
 
 // 재관람카드 - 공연 시즌 (KOPIS mt20id 기준)
