@@ -41,7 +41,6 @@ const formatTicketResponse = (ticket: TicketWithActors) => {
     time: formatTime(ticket.time),
     performanceName: ticket.performanceName,
     genre: formatGenre(ticket.genre),
-    isChild: ticket.isChild,
     theater: ticket.theater,
     seat: ticket.seat,
     ticketPrice: ticket.ticketPrice,
@@ -213,8 +212,6 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
  *               genre:
  *                 type: string
  *                 enum: [연극, 뮤지컬]
- *               isChild:
- *                 type: boolean
  *               theater:
  *                 type: string
  *               seat:
@@ -255,7 +252,6 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
       time,
       performanceName,
       genre,
-      isChild,
       theater,
       seat,
       ticketPrice,
@@ -297,7 +293,6 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
         time: parseTime(time),
         performanceName: performanceName || "",
         genre: parseGenre(genre),
-        isChild: isChild || false,
         theater: theater || "",
         seat: seat || null,
         ticketPrice: ticketPrice || 0,
@@ -359,8 +354,6 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
  *               genre:
  *                 type: string
  *                 enum: [연극, 뮤지컬]
- *               isChild:
- *                 type: boolean
  *               theater:
  *                 type: string
  *               seat:
@@ -411,7 +404,6 @@ router.put("/:id", async (req: Request, res: Response): Promise<void> => {
     if (body.time !== undefined) updateData.time = parseTime(body.time);
     if (body.performanceName !== undefined) updateData.performanceName = body.performanceName;
     if (body.genre !== undefined) updateData.genre = parseGenre(body.genre);
-    if (body.isChild !== undefined) updateData.isChild = body.isChild;
     if (body.theater !== undefined) updateData.theater = body.theater;
     if (body.seat !== undefined) updateData.seat = body.seat;
     if (body.ticketPrice !== undefined) updateData.ticketPrice = body.ticketPrice;

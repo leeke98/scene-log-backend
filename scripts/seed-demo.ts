@@ -80,7 +80,6 @@ async function main() {
         time: ticket.time,
         performanceName: ticket.performanceName,
         genre: ticket.genre,
-        isChild: ticket.isChild,
         theater: ticket.theater,
         seat: ticket.seat,
         ticketPrice: ticket.ticketPrice,

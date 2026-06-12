@@ -82,9 +82,6 @@ const swaggerDefinition: SwaggerDefinition = {
             type: "string",
             enum: ["연극", "뮤지컬"],
           },
-          isChild: {
-            type: "boolean",
-          },
           theater: {
             type: "string",
           },

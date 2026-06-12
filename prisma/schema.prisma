@@ -86,7 +86,6 @@ model Ticket {
   time            DateTime @db.Time
   performanceName String   @map("performance_name")
   genre           Genre?
-  isChild         Boolean  @default(false) @map("is_child")
   theater         String
   seat            String?
   ticketPrice     Int      @default(0) @map("ticket_price")

@@ -82,7 +82,6 @@ npx prisma studio
 - `time`: 공연 시간 (Time)
 - `performanceName`: 작품명
 - `genre`: 장르 (연극/뮤지컬)
-- `isChild`: 어린이 공연 여부
 - `theater`: 극장명
 - `seat`: 좌석 정보
 - `ticketPrice`: 티켓 가격
