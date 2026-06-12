@@ -234,4 +234,16 @@ describe("parsePagination", () => {
     expect(isPaginationError(high)).toBe(true);
     if (isPaginationError(high)) expect(high.code).toBe("INVALID_LIMIT");
   });
+
+  it("숫자가 아닌 page는 INVALID_PAGE 에러를 반환한다", () => {
+    const result = parsePagination("abc", "50");
+    expect(isPaginationError(result)).toBe(true);
+    if (isPaginationError(result)) expect(result.code).toBe("INVALID_PAGE");
+  });
+
+  it("숫자가 아닌 limit은 INVALID_LIMIT 에러를 반환한다", () => {
+    const result = parsePagination("1", "abc");
+    expect(isPaginationError(result)).toBe(true);
+    if (isPaginationError(result)) expect(result.code).toBe("INVALID_LIMIT");
+  });
 });

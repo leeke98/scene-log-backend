@@ -170,10 +170,10 @@ export const parsePagination = (
   const pageNum = parseInt((page as string) || "1", 10);
   const limitNum = parseInt((limit as string) || String(defaultLimit), 10);
 
-  if (pageNum < 1) {
+  if (Number.isNaN(pageNum) || pageNum < 1) {
     return { error: "페이지 번호는 1 이상이어야 합니다.", code: "INVALID_PAGE" };
   }
-  if (limitNum < 1 || limitNum > 100) {
+  if (Number.isNaN(limitNum) || limitNum < 1 || limitNum > 100) {
     return {
       error: "페이지당 항목 수는 1 이상 100 이하여야 합니다.",
       code: "INVALID_LIMIT",
