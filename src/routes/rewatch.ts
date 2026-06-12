@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { Prisma, RewatchRewardType } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { authenticate } from "../middleware/auth";
+import { computeTotalStamps, computeMilestoneStatuses } from "../lib/rewatch";
 
 const router = Router();
 router.use(authenticate);
@@ -64,7 +65,7 @@ router.get("/seasons", async (req: Request, res: Response): Promise<void> => {
       const cards = season.cards.map((card) => ({
         id: card.id,
         label: card.label,
-        totalStamps: card.cardTickets.reduce((sum, ct) => sum + ct.stampCount, 0),
+        totalStamps: computeTotalStamps(card.cardTickets),
         ticketCount: card.cardTickets.length,
       }));
 
@@ -192,43 +193,8 @@ router.get("/seasons/:seasonId", async (req: Request, res: Response): Promise<vo
     }
 
     const cards = season.cards.map((card) => {
-      const totalStamps = card.cardTickets.reduce((sum, ct) => sum + ct.stampCount, 0);
-
-      const milestoneStatuses = season.milestones.map((m) => {
-        const achieved = totalStamps >= m.stampCount;
-
-        const rewardStatuses = m.rewards.map((r) => {
-          if (r.rewardType === RewatchRewardType.DISCOUNT_VOUCHER) {
-            const usages = card.voucherUsages.filter((u) => u.rewardId === r.id);
-            const remaining = (r.voucherQty ?? 1) - usages.length;
-            return {
-              rewardId: r.id,
-              rewardType: r.rewardType,
-              discountPercent: r.discountPercent,
-              voucherQty: r.voucherQty,
-              voucherUsed: usages.length,
-              voucherRemaining: remaining,
-              usages: usages.map((u) => ({ id: u.id, ticketId: u.ticketId, usedAt: u.usedAt })),
-            };
-          } else {
-            const receipt = card.merchandiseReceipts.find((rec) => rec.rewardId === r.id);
-            return {
-              rewardId: r.id,
-              rewardType: r.rewardType,
-              merchandiseDesc: r.merchandiseDesc,
-              merchandiseReceiptId: receipt?.id ?? null,
-              merchandiseReceived: receipt?.received ?? false,
-              merchandiseReceivedAt: receipt?.receivedAt ?? null,
-            };
-          }
-        });
-
-        return {
-          milestoneId: m.id,
-          achieved,
-          rewardStatuses,
-        };
-      });
+      const totalStamps = computeTotalStamps(card.cardTickets);
+      const milestoneStatuses = computeMilestoneStatuses(season.milestones, card, totalStamps);
 
       return {
         id: card.id,
